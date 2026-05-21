@@ -180,7 +180,7 @@ def test_transfer_without_description_stores_empty_string():
 
 # --- pay_bill service tests ---
 
-def _make_biller(account, name="SP PowerGrid", reference="ACC-001"):
+def _make_biller(account, name=Biller.ELECTRICITY, reference="ACC-001"):
     return Biller.objects.create(account=account, name=name, reference=reference)
 
 
@@ -196,17 +196,17 @@ def test_pay_bill_deducts_balance_and_creates_bill_payment_transaction():
     assert txn.transaction_type == Transaction.BILL_PAYMENT
     assert txn.amount == Decimal("40.00")
     assert txn.balance_after == Decimal("60.00")
-    assert txn.description == biller.name
+    assert txn.description == f"{biller.get_name_display()} ({biller.reference})"
 
 
-def test_pay_bill_stores_biller_name_in_description():
+def test_pay_bill_stores_biller_category_and_reference_in_description():
     user = create_user("Alice", "81234567")
     deposit(user.account, Decimal("50.00"))
-    biller = _make_biller(user.account, name="Starhub Internet")
+    biller = _make_biller(user.account, name=Biller.INTERNET_BROADBAND)
 
     txn = pay_bill(user.account, biller, Decimal("20.00"))
 
-    assert txn.description == "Starhub Internet"
+    assert txn.description == "Internet & Broadband (ACC-001)"
 
 
 def test_pay_bill_raises_insufficient_funds_and_leaves_balance_unchanged():

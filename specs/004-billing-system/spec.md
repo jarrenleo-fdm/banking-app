@@ -10,6 +10,7 @@
 ### Session 2026-05-21
 
 - Q: Which predefined biller categories should be available for selection? → A: Electricity · Water & Utilities · Internet & Broadband · Telecommunications · Town Council / Maintenance (5 fixed categories; free-text biller names are not supported).
+- Q: What is the uniqueness scope for the mandatory reference field? → A: Unique per user + category — two billers of the same category under the same user cannot share the same reference; the same reference string may appear under different categories.
 
 ---
 
@@ -33,18 +34,20 @@ A logged-in user selects a biller (e.g., electricity, internet), enters the amou
 
 ### User Story 2 - Manage Saved Billers (Priority: P2)
 
-A user can add, view, and remove billers by selecting from a fixed list of 5 predefined categories: **Electricity**, **Water & Utilities**, **Internet & Broadband**, **Telecommunications**, and **Town Council / Maintenance**. An optional reference/account number can be added to each saved biller. Saved billers make future payments faster without requiring the user to type any names.
+A user can add, view, and remove billers by selecting from a fixed list of 5 predefined categories: **Electricity**, **Water & Utilities**, **Internet & Broadband**, **Telecommunications**, and **Town Council / Maintenance**. A reference/account number is **mandatory** for each saved biller and must be unique within the same category for that user — this ensures multiple billers of the same category remain distinguishable. Saved billers make future payments faster without requiring the user to type any names.
 
 **Why this priority**: Without saved billers, every payment requires manually entering payee details, which is error-prone and slow. Saved billers are the foundation of a usable billing experience.
 
-**Independent Test**: Can be fully tested by selecting a biller category, optionally entering a reference, saving, verifying the biller appears in the list, then removing it and confirming it no longer appears.
+**Independent Test**: Can be fully tested by selecting a biller category, entering a reference, saving, verifying the biller appears in the list, then removing it and confirming it no longer appears.
 
 **Acceptance Scenarios**:
 
-1. **Given** a logged-in user is on the billing page, **When** they select a biller category from the predefined list and optionally enter a reference, **Then** the biller is saved and appears in their billers list showing the category name and reference.
+1. **Given** a logged-in user is on the billing page, **When** they select a biller category from the predefined list and enter a reference, **Then** the biller is saved and appears in their billers list showing the category name and reference.
 2. **Given** a logged-in user has saved billers, **When** they view the billing page, **Then** all saved billers are listed by category name and can be selected for payment.
 3. **Given** a logged-in user selects a saved biller for deletion, **When** they confirm the removal, **Then** the biller is removed from their list and cannot be selected for future payments.
 4. **Given** a logged-in user attempts to submit the add-biller form without selecting a category, **When** they submit, **Then** a validation error is shown and no biller is saved.
+5. **Given** a logged-in user attempts to submit the add-biller form without entering a reference, **When** they submit, **Then** a validation error is shown and no biller is saved.
+6. **Given** a logged-in user already has a saved biller of a given category with a specific reference, **When** they attempt to add another biller of the same category with the same reference, **Then** a validation error is shown indicating the reference must be unique for that category and no duplicate biller is saved.
 
 ---
 
@@ -67,7 +70,7 @@ A user can view a list of all past bill payments including the biller name, amou
 ### Edge Cases
 
 - What happens when a user attempts a bill payment that would reduce their balance below zero?
-- What happens if the user saves the same biller category twice (e.g., two Electricity billers with different references)?
+- Saving two billers of the same category is allowed provided their references differ; attempting to save with an already-used category + reference combination returns a validation error.
 - How does the system behave if a user deletes a biller that has associated payment history?
 - What happens if a user navigates away mid-payment before confirming?
 
@@ -75,7 +78,9 @@ A user can view a list of all past bill payments including the biller name, amou
 
 ### Functional Requirements
 
-- **FR-001**: The system MUST allow users to add a biller by selecting one of five predefined categories (Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance) and optionally entering a reference/account number. Free-text biller names are not supported.
+- **FR-001**: The system MUST allow users to add a biller by selecting one of five predefined categories (Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance) and entering a mandatory reference/account number. Free-text biller names are not supported.
+- **FR-001a**: The reference/account number MUST be mandatory — the add-biller form MUST NOT be submittable without it.
+- **FR-001b**: The reference MUST be unique per user and category — the system MUST reject attempts to save a second biller with the same category and reference for the same user.
 - **FR-002**: The system MUST display a list of all billers saved by the logged-in user.
 - **FR-003**: The system MUST allow users to remove a saved biller.
 - **FR-004**: The system MUST allow users to pay a bill by selecting a saved biller, entering an amount, and confirming the payment.
@@ -88,7 +93,7 @@ A user can view a list of all past bill payments including the biller name, amou
 
 ### Key Entities
 
-- **Biller**: A payee saved by a user; has a category (one of five predefined values: Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance), an optional reference/account number, and belongs to one user. The category is selected, not typed.
+- **Biller**: A payee saved by a user; has a category (one of five predefined values: Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance), a mandatory reference/account number (free-text, unique per user + category), and belongs to one user. The category is selected, not typed.
 - **Bill Payment**: A record of a completed payment; links to a biller, the paying account, the amount, and the timestamp. Maps to a transaction entry.
 
 ## Success Criteria *(mandatory)*
@@ -107,6 +112,6 @@ A user can view a list of all past bill payments including the biller name, amou
 - Billers are private to the user who created them — they are not shared across users or accounts.
 - Payments are immediate and non-reversible once confirmed; no scheduled or recurring billing is in scope for this version.
 - A single account per user exists (as per the current data model); payments are always drawn from that account.
-- Biller names are not free-text — users must select from the five predefined categories. The optional reference field (e.g., an account or customer number with the biller) remains free-text.
-- A user may save the same category more than once with different references (e.g., two Electricity billers for two premises).
+- Biller names are not free-text — users must select from the five predefined categories. The reference field (e.g., an account or customer number with the biller) is mandatory, free-text, and must be unique per user and category.
+- A user may save the same category more than once provided each entry has a distinct reference (e.g., two Electricity billers for two premises with different account numbers).
 - Deleting a biller retains its historical payment records for auditing purposes; only the biller entry itself is removed.

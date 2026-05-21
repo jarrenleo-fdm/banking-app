@@ -19,7 +19,15 @@
       "Bash(pre-commit run *)",
       "Bash(flake8 *)",
       "Bash(bandit -r banking/ -q)",
-      "Bash(echo \"flake8 exit: $?\")"
+      "Bash(echo \"flake8 exit: $?\")",
+      "Bash(pylint *)",
+      "Bash(bandit *)",
+      "Bash(open *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/accounts/login/)",
+      "Bash(curl -s http://localhost:8000/accounts/login/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/accounts/signup/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/banking/dashboard/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8000/)"
     ]
   }
 }

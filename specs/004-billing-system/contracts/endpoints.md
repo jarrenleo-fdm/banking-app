@@ -35,7 +35,14 @@ account        — request.user.account
 
 **Validation**:
 - `name` — required, must be one of the five predefined category values (`ELECTRICITY`, `WATER_UTILITIES`, `INTERNET_BROADBAND`, `TELECOMMUNICATIONS`, `TOWN_COUNCIL`); rendered as a `<select>` dropdown, not a text input
-- `reference` — optional, max 100 chars, free-text
+- `reference` — **required**, max 100 chars, free-text; must be unique per (account, category) — duplicate returns a form error, HTTP 200
+
+**Error cases**:
+| Condition | Behaviour |
+|-----------|-----------|
+| `name` missing or invalid | Form error on `name` field, HTTP 200 |
+| `reference` missing | Form error on `reference` field, HTTP 200 |
+| Duplicate (account + name + reference) | Non-field form error: "A biller with this category and reference already exists.", HTTP 200 |
 
 ---
 

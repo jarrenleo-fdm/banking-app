@@ -77,7 +77,7 @@ def pay_bill(account: Account, biller: Biller, amount: Decimal) -> Transaction:
         transaction_type=Transaction.BILL_PAYMENT,
         amount=amount,
         balance_after=account.balance,
-        description=biller.name,
+        description=f"{biller.get_name_display()} ({biller.reference})",
     )
 
 

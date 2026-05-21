@@ -1,14 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
 {% block content %}
-  <section class="panel">
-    <h1>Dashboard</h1>
-    <p>{{ user.name }} · {{ user.phone_number }}</p>
-    <p><span class="account-type-badge">{{ user.account.get_account_type_display }}</span></p>
-    <p class="balance">${{ balance|floatformat:2 }}</p>
-  </section>
 
-  <section class="grid" aria-label="Banking actions">
+  <div class="balance-hero">
+    <div class="balance-hero-inner">
+      <div>
+        <p class="balance-label">Total Balance</p>
+        <p class="balance">${{ balance|floatformat:2 }}</p>
+        <p class="account-sub">
+          <span class="account-type-badge">{{ user.account.get_account_type_display }}</span>
+          &nbsp;{{ user.name }} · {{ user.phone_number }}
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid">
     <div class="card">
       <h2>Deposit</h2>
       <form method="post" action="{% url 'banking:deposit' %}" novalidate>
@@ -50,17 +58,23 @@
         <p><button type="submit">Send</button></p>
       </form>
     </div>
-  </section>
+  </div>
 
-  <section class="panel">
-    <h2>Recent transactions</h2>
+  <div class="panel">
+    <div class="panel-hdr">
+      <h2 style="margin-bottom:0">Recent Transactions</h2>
+      <div style="display:flex;gap:12px;align-items:center">
+        <a class="panel-link" href="{% url 'banking:transactions' %}">View all</a>
+        <a class="panel-link" href="{% url 'banking:billing' %}">Pay bills</a>
+      </div>
+    </div>
     {% if recent_transactions %}
       <table>
         <thead>
           <tr>
             <th>Type</th>
             <th>Amount</th>
-            <th>Date/Time</th>
+            <th>Date / Time</th>
             <th>Balance After</th>
           </tr>
         </thead>
@@ -68,17 +82,20 @@
           {% for transaction in recent_transactions %}
             <tr>
               <td>{{ transaction.get_transaction_type_display }}</td>
-              <td>${{ transaction.amount|floatformat:2 }}</td>
+              <td>
+                <span class="amount {% if transaction.transaction_type == 'DEPOSIT' or transaction.transaction_type == 'TRANSFER_IN' %}credit{% else %}debit{% endif %}">
+                  ${{ transaction.amount|floatformat:2 }}
+                </span>
+              </td>
               <td>{{ transaction.timestamp }}</td>
-              <td>${{ transaction.balance_after|floatformat:2 }}</td>
+              <td><span class="amount">${{ transaction.balance_after|floatformat:2 }}</span></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
-      <p><a href="{% url 'banking:transactions' %}">View full history</a></p>
-      <p><a href="{% url 'banking:billing' %}">Pay Bills</a></p>
     {% else %}
-      <p>You have no transactions yet.</p>
+      <p class="empty-state">No transactions yet.</p>
     {% endif %}
-  </section>
+  </div>
+
 {% endblock %}

@@ -1,28 +1,33 @@
 {% extends "base.html" %}
 {% block title %}Transactions{% endblock %}
+{% block page_title %}Transactions{% endblock %}
 {% block content %}
-  <section class="panel">
-    <h1>Transactions</h1>
+
+  <div class="panel">
     {% if transactions %}
       <table>
         <thead>
           <tr>
             <th>ID</th>
-            <th>Date/Time</th>
+            <th>Date / Time</th>
             <th>Type</th>
             <th>Amount</th>
             <th>Balance After</th>
-            <th>Other Party</th>
+            <th>Details</th>
           </tr>
         </thead>
         <tbody>
           {% for transaction in transactions %}
             <tr>
-              <td>#{{ transaction.pk }}</td>
+              <td style="color:var(--text-tertiary);font-family:'JetBrains Mono',monospace;font-size:11px">#{{ transaction.pk }}</td>
               <td>{{ transaction.timestamp }}</td>
               <td>{{ transaction.get_transaction_type_display }}</td>
-              <td>${{ transaction.amount|floatformat:2 }}</td>
-              <td>${{ transaction.balance_after|floatformat:2 }}</td>
+              <td>
+                <span class="amount {% if transaction.transaction_type == 'DEPOSIT' or transaction.transaction_type == 'TRANSFER_IN' %}credit{% else %}debit{% endif %}">
+                  ${{ transaction.amount|floatformat:2 }}
+                </span>
+              </td>
+              <td><span class="amount">${{ transaction.balance_after|floatformat:2 }}</span></td>
               <td>
                 {% if transaction.transaction_type == "TRANSFER_OUT" and transaction.counterparty %}
                   To: {{ transaction.counterparty.user.name }} · {{ transaction.counterparty.user.phone_number }}
@@ -30,7 +35,7 @@
                   From: {{ transaction.counterparty.user.name }} · {{ transaction.counterparty.user.phone_number }}
                 {% endif %}
                 {% if transaction.description %}
-                  <br>Description: {{ transaction.description }}
+                  <br>{{ transaction.description }}
                 {% endif %}
               </td>
             </tr>
@@ -38,7 +43,8 @@
         </tbody>
       </table>
     {% else %}
-      <p>You have no transactions yet.</p>
+      <p class="empty-state">No transactions yet.</p>
     {% endif %}
-  </section>
+  </div>
+
 {% endblock %}

@@ -46,14 +46,23 @@ class TransferForm(AmountForm):
 class BillerForm(forms.Form):
     """Add a new saved biller."""
 
-    name = forms.CharField(max_length=100)
-    reference = forms.CharField(max_length=100, required=False)
+    name = forms.ChoiceField(choices=Biller.BILLER_CATEGORIES)
+    reference = forms.CharField(max_length=100)
 
-    def clean_name(self):
-        name = self.cleaned_data["name"].strip()
-        if not name:
-            raise forms.ValidationError("Biller name cannot be blank.")
-        return name
+    def __init__(self, *args, account=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.account = account
+
+    def clean(self):
+        cleaned_data = super().clean()
+        name = cleaned_data.get("name")
+        reference = cleaned_data.get("reference")
+        if self.account and name and reference:
+            if Biller.objects.filter(account=self.account, name=name, reference=reference).exists():
+                raise forms.ValidationError(
+                    "A biller with this category and reference already exists."
+                )
+        return cleaned_data
 
 
 class BillPaymentForm(forms.Form):

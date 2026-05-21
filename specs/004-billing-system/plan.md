@@ -1,38 +1,39 @@
 # Implementation Plan: Billing System
 
-**Branch**: `004-billing-system` | **Date**: 2026-05-21 | **Spec**: [spec.md](spec.md)  
-**Input**: Feature specification from `specs/004-billing-system/spec.md`
+**Branch**: `004-billing-system` | **Date**: 2026-05-21 | **Spec**: [spec.md](spec.md)
+**Input**: Feature specification from `/specs/004-billing-system/spec.md`
 
 ## Summary
 
-Allow logged-in users to save billers by selecting from five predefined categories (Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance) and pay bills directly from their account balance. Bill payments are atomic balance deductions recorded as a `BILL_PAYMENT` transaction type, appearing in the existing transaction history. The feature is implemented entirely within the existing `banking` Django app.
-
-**Amendment (2026-05-21):** The original plan specified free-text biller names. Following `/speckit-clarify`, biller names are now constrained to five predefined categories stored as Django model choices. This changes `Biller.name` from a free-text `CharField` to a `CharField(choices=BILLER_CATEGORIES)`, and `BillerForm.name` from a `CharField` to a `ChoiceField`. A new migration is required.
+Add a billing system allowing users to save billers (from 5 fixed categories), pay bills from saved billers, and view payment history. The billing infrastructure (model scaffolding, service skeleton, views, and URL routes) was already partially implemented on this branch. This plan finalises the feature by enforcing a **mandatory, per-user-per-category-unique reference field** on the `Biller` model, updating all related forms, tests, service descriptions, and adding the migration. All changes are surgical — no new architectural layers are introduced.
 
 ## Technical Context
 
-**Language/Version**: Python 3.11  
-**Primary Dependencies**: Django (LTS), Django ORM  
-**Storage**: SQLite3 (Prototype/Learning tier)  
-**Testing**: pytest-django (existing project convention)  
-**Target Platform**: Local web server (Django dev server)  
-**Project Type**: Web application (Django, server-rendered templates)  
-**Performance Goals**: Standard web app — page loads under 2 seconds  
-**Constraints**: No floating-point money; all balance operations atomic; user data isolation enforced at query level  
-**Scale/Scope**: Single-user-per-account model; Prototype tier  
-**Deployment Tier**: **Prototype / Learning**
+**Language/Version**: Python 3.x · Django 5.2 (LTS)
+**Primary Dependencies**: Django 5.2, django-environ, gunicorn; pytest + pytest-django (test runner)
+**Storage**: SQLite3 — Prototype tier; `@transaction.atomic` provides exclusive write lock (no `select_for_update` required)
+**Testing**: pytest via `pytest.ini`; test files in `banking/tests/` (`test_models.py`, `test_services.py`, `test_views.py`)
+**Target Platform**: Django web application; server-rendered HTML with form POST patterns
+**Project Type**: Django web service (monolith — `accounts` + `banking` apps)
+**Performance Goals**: Users complete a bill payment in under 2 minutes (SC-001)
+**Constraints**: Prototype/Learning tier; SQLite3 concurrency handled by `@transaction.atomic`
+**Scale/Scope**: Single account per user; billers are private per user
 
 ## Constitution Check
 
-*GATE: Must pass before implementation begins.*
+**Active Tier: Prototype / Learning**
+
+*GATE: Must pass before implementation starts.*
 
 | Principle | Status | Notes |
 |-----------|--------|-------|
-| I. Security (NON-NEGOTIABLE) | ✅ PASS | All billing views use `@login_required`; biller ownership enforced by scoping all queries to `request.user.account`; no biller or payment data accessible across users |
-| II. Test-First (NON-NEGOTIABLE) | ✅ PASS | Red-Green-Refactor cycle required; tests for updated `BillerForm` and biller category choices written before implementation |
-| III. SonarQube | ⚠ RELAXED | Prototype/Learning tier; compensated by `flake8`, `pylint`, and `bandit` |
-| IV. Auditability | ✅ PASS | Bill payments create immutable `Transaction` records with category name in description |
-| V. Data Integrity | ✅ PASS (with relaxation) | `pay_bill` wrapped in `@transaction.atomic`; `select_for_update()` not required on SQLite3 |
+| I — Security | ✅ PASS | All billing views are `@login_required`; biller ownership enforced in every view (`account=account` filter or `get_object_or_404`); CSRF active; no sensitive data in error messages |
+| II — Test-First | ✅ PASS | Tests written before implementation per Red-Green-Refactor; every money path has unit + integration tests |
+| III — SonarQube | ✅ PASS (tier) | Prototype tier — SonarQube not required; compensating controls: `flake8`, `pylint`, `bandit` run locally before each commit |
+| IV — Auditability | ✅ PASS | `pay_bill` creates an immutable `Transaction` record with description including biller category + reference |
+| V — Data Integrity | ✅ PASS (tier) | `@transaction.atomic` on `pay_bill`; SQLite3 exclusive lock satisfies Prototype tier; Decimal for all monetary values |
+
+**No violations requiring Complexity Tracking.** Prototype-tier relaxations (SonarQube, `select_for_update`) are pre-approved in the constitution and recorded in `specs/001-core-banking-operations/plan.md`.
 
 ## Project Structure
 
@@ -40,35 +41,31 @@ Allow logged-in users to save billers by selecting from five predefined categori
 
 ```text
 specs/004-billing-system/
-├── plan.md              # This file
-├── research.md          # Phase 0 output (updated for predefined categories)
-├── data-model.md        # Phase 1 output (updated: Biller.name → choices)
-├── quickstart.md        # Phase 1 output
+├── plan.md              ← this file
+├── research.md          ← Phase 0 output
+├── data-model.md        ← Phase 1 output
+├── quickstart.md        ← Phase 1 output
 ├── contracts/
-│   └── endpoints.md     # Phase 1 output (updated: add_biller uses dropdown)
-└── tasks.md             # Phase 2 output (/speckit-tasks)
+│   └── billing-endpoints.md  ← Phase 1 output
+└── tasks.md             ← Phase 2 output (/speckit-tasks)
 ```
 
-### Source Code
+### Source Code (repository root)
 
 ```text
 banking/
-├── models.py               ← amend Biller: add BILLER_CATEGORIES choices, constrain name field
-├── forms.py                ← amend BillerForm: name becomes ChoiceField
+├── models.py            ← Biller: remove blank=True on reference, add unique_together, update __str__
+├── forms.py             ← BillerForm: reference required=True, add account param + clean() for uniqueness
+├── services.py          ← pay_bill: include reference in transaction description
+├── views.py             ← add_biller_view: pass account to BillerForm
 ├── migrations/
-│   └── 0004_biller_name_choices.py  ← new (choices-only, no schema change)
+│   └── 0005_biller_reference_mandatory_unique.py  ← new migration
+├── templates/banking/
+│   └── billing.html     ← mark reference input as required
 └── tests/
-    ├── test_models.py      ← add choices validation tests for Biller
-    └── test_views.py       ← add test: add_biller with invalid category is rejected
+    ├── test_models.py   ← update Biller __str__ tests; replace blank-reference test; add uniqueness tests
+    ├── test_services.py ← update description assertion to include reference
+    └── test_views.py    ← add blank-reference rejection test; add duplicate-reference rejection test
 ```
 
-No changes required to `services.py`, `views.py`, `urls.py`, or templates — the category constraint is enforced at the form and model level only.
-
-## Complexity Tracking
-
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|--------------------------------------|
-| Principle III — no SonarQube CI | Prototype/Learning tier | Setting up SonarQube CI is out of scope; `flake8 + pylint + bandit` run locally |
-| Principle V — no `select_for_update()` | SQLite3 backend | `@transaction.atomic` on SQLite3 issues exclusive write lock |
-
-**Production migration TODO**: Before involving real users or real money, migrate to PostgreSQL, enable `select_for_update()` in `pay_bill`, integrate SonarQube CI, and re-declare as Production tier.
+**Structure Decision**: Single Django app (`banking`); all billing code lives within this existing app. No new files outside migrations and the spec artifacts above.

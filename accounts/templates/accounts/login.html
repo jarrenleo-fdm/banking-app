@@ -1,9 +1,10 @@
-{% extends "base.html" %}
+{% extends "base_auth.html" %}
 {% block title %}Login{% endblock %}
 {% block content %}
-  <section class="panel">
-    <h1>Login</h1>
-    <form method="post" novalidate>
+  <div class="auth-card">
+    <h1>Welcome back</h1>
+    <p style="margin-bottom:4px">Sign in to your Banking account.</p>
+    <form method="post" novalidate style="margin-top:8px">
       {% csrf_token %}
       {{ form.non_field_errors }}
       <label for="{{ form.username.id_for_label }}">Username</label>
@@ -12,9 +13,11 @@
       <label for="{{ form.password.id_for_label }}">Password</label>
       {{ form.password }}
       {{ form.password.errors }}
-      <p><button type="submit">Login</button></p>
+      <p><button type="submit" style="width:100%;margin-top:20px">Sign in</button></p>
     </form>
-    <p><a href="{% url 'accounts:password_reset' %}">Reset password</a></p>
-    <p>No account yet? <a href="{% url 'accounts:signup' %}">Sign up</a>.</p>
-  </section>
+    <p style="text-align:right;margin-top:10px">
+      <a href="{% url 'accounts:password_reset' %}">Forgot password?</a>
+    </p>
+  </div>
+  <p class="auth-footer">No account? <a href="{% url 'accounts:signup' %}">Create one</a></p>
 {% endblock %}

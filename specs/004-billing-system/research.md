@@ -37,7 +37,35 @@ No external unknowns require resolution — the full tech stack is established b
 
 ---
 
-## Decision 5: Biller name — free-text vs. predefined categories
+## Decision 4: Mandatory and unique-per-category reference field
+
+**Decision**: `Biller.reference` becomes mandatory (remove `blank=True`). A `unique_together = [("account", "name", "reference")]` DB constraint is added. Form validation (in `BillerForm.clean()`) checks uniqueness before the DB write.
+
+**Rationale**: Without a mandatory reference, two Electricity billers for the same user are displayed identically in the payment dropdown, making them indistinguishable. Making the reference mandatory ensures every biller has a label beyond its category. The uniqueness constraint (per user + category) prevents accidental duplicates. Uniqueness is scoped to (account + name) — the same reference string is permitted across different categories (e.g., "12345" for Electricity and "12345" for Internet).
+
+**Alternatives considered**:
+- Global uniqueness per user (`unique_together = [("account", "reference")]`): rejected — unnecessarily restrictive; the same customer-facing reference could appear for different providers.
+- Application-layer-only validation (no DB constraint): rejected — violates Principle V; the DB constraint is the authoritative safety net.
+
+## Decision 5: Biller display label
+
+**Decision**: Update `Biller.__str__` to return `"{display_name} ({reference})"` (e.g., `"Electricity (ACC-001)"`). `ModelChoiceField` uses `str(instance)` for option labels, so the payment dropdown inherits this change automatically.
+
+**Rationale**: Fixes the root cause of indistinguishable options at the model level; no per-form or template patch needed.
+
+**Alternatives considered**:
+- Override `label_from_instance` on `BillPaymentForm.biller`: works but duplicates display logic that `__str__` should own.
+
+## Decision 6: Transaction description includes reference
+
+**Decision**: Update `pay_bill` service to store `f"{biller.get_name_display()} ({biller.reference})"` as the transaction description (e.g., `"Electricity (ACC-001)"`).
+
+**Rationale**: The transaction record is the immutable audit trail. If a biller is deleted, the description must remain meaningful. Including the reference ensures the history row is as specific as the payment selection was (Principle IV — Auditability).
+
+**Alternatives considered**:
+- Keep description as `biller.get_name_display()` only: loses the reference in the audit record; two electricity payments become indistinguishable in history.
+
+## Decision 7: Biller name — free-text vs. predefined categories
 
 **Decision**: `Biller.name` is constrained to a fixed set of five predefined categories stored as Django model choices: `Electricity`, `Water & Utilities`, `Internet & Broadband`, `Telecommunications`, `Town Council / Maintenance`.
 

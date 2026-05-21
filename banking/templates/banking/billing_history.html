@@ -1,19 +1,20 @@
 {% extends "base.html" %}
 {% block title %}Bill Payment History{% endblock %}
+{% block page_title %}Bill Payment History{% endblock %}
 {% block content %}
-  <section class="panel">
-    <h1>Bill Payment History</h1>
-    <p><a href="{% url 'banking:billing' %}">← Back to Billing</a></p>
-  </section>
 
-  <section class="panel">
+  <a class="back-link" href="{% url 'banking:billing' %}">
+    ← Back to Billing
+  </a>
+
+  <div class="panel">
     {% if payments %}
       <table>
         <thead>
           <tr>
             <th>Biller</th>
             <th>Amount</th>
-            <th>Date/Time</th>
+            <th>Date / Time</th>
             <th>Balance After</th>
           </tr>
         </thead>
@@ -21,15 +22,16 @@
           {% for payment in payments %}
             <tr>
               <td>{{ payment.description }}</td>
-              <td>${{ payment.amount|floatformat:2 }}</td>
+              <td><span class="amount debit">${{ payment.amount|floatformat:2 }}</span></td>
               <td>{{ payment.timestamp }}</td>
-              <td>${{ payment.balance_after|floatformat:2 }}</td>
+              <td><span class="amount">${{ payment.balance_after|floatformat:2 }}</span></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     {% else %}
-      <p>You have no bill payments yet.</p>
+      <p class="empty-state">No bill payments yet.</p>
     {% endif %}
-  </section>
+  </div>
+
 {% endblock %}

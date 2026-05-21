@@ -1,6 +1,7 @@
 """Tests for Account.account_type and BusinessProfile model."""
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from banking.models import Account, Biller, BusinessProfile
@@ -68,20 +69,57 @@ def test_business_registration_number_unique_constraint():
 
 # --- Biller model tests ---
 
-def test_biller_str_returns_name():
+def test_biller_str_returns_category_and_reference():
     user = make_user()
-    biller = Biller.objects.create(account=user.account, name="SP PowerGrid")
-    assert str(biller) == "SP PowerGrid"
+    biller = Biller.objects.create(
+        account=user.account, name=Biller.ELECTRICITY, reference="ACC-001"
+    )
+    assert str(biller) == "Electricity (ACC-001)"
 
 
 def test_biller_belongs_to_account():
     user = make_user()
-    biller = Biller.objects.create(account=user.account, name="Starhub")
+    biller = Biller.objects.create(
+        account=user.account, name=Biller.TELECOMMUNICATIONS, reference="REF-001"
+    )
     assert biller.account == user.account
     assert user.account.billers.filter(pk=biller.pk).exists()
 
 
-def test_biller_reference_can_be_blank():
+def test_biller_reference_is_mandatory():
     user = make_user()
-    biller = Biller.objects.create(account=user.account, name="PUB", reference="")
-    assert biller.reference == ""
+    biller = Biller(account=user.account, name=Biller.WATER_UTILITIES, reference="")
+    with pytest.raises(ValidationError):
+        biller.full_clean()
+
+
+def test_biller_categories_all_return_correct_display_labels():
+    user = make_user()
+    expected = [
+        (Biller.ELECTRICITY, "Electricity"),
+        (Biller.WATER_UTILITIES, "Water & Utilities"),
+        (Biller.INTERNET_BROADBAND, "Internet & Broadband"),
+        (Biller.TELECOMMUNICATIONS, "Telecommunications"),
+        (Biller.TOWN_COUNCIL, "Town Council / Maintenance"),
+    ]
+    for stored_value, display_label in expected:
+        biller = Biller.objects.create(
+            account=user.account, name=stored_value, reference="REF-001"
+        )
+        assert str(biller) == f"{display_label} (REF-001)"
+
+
+def test_biller_reference_unique_per_account_and_category():
+    user = make_user()
+    Biller.objects.create(account=user.account, name=Biller.ELECTRICITY, reference="ACC-001")
+    with pytest.raises(IntegrityError):
+        Biller.objects.create(account=user.account, name=Biller.ELECTRICITY, reference="ACC-001")
+
+
+def test_biller_same_reference_allowed_across_categories():
+    user = make_user()
+    Biller.objects.create(account=user.account, name=Biller.ELECTRICITY, reference="ACC-001")
+    biller2 = Biller.objects.create(
+        account=user.account, name=Biller.INTERNET_BROADBAND, reference="ACC-001"
+    )
+    assert biller2.pk is not None

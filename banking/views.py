@@ -136,7 +136,7 @@ def _billing_context(account, **overrides):
         "account": account,
         "billers": account.billers.order_by("name"),
         "pay_form": BillPaymentForm(account=account),
-        "add_biller_form": BillerForm(),
+        "add_biller_form": BillerForm(account=account),
     }
     context.update(overrides)
     return context
@@ -179,12 +179,12 @@ def pay_bill_view(request):
 def add_biller_view(request):
     """Handle adding a new biller."""
     account = request.user.account
-    form = BillerForm(request.POST)
+    form = BillerForm(request.POST, account=account)
     if form.is_valid():
         Biller.objects.create(
             account=account,
             name=form.cleaned_data["name"],
-            reference=form.cleaned_data.get("reference", ""),
+            reference=form.cleaned_data["reference"],
         )
         messages.success(request, f"Biller '{form.cleaned_data['name']}' added.")
         return redirect("banking:billing")

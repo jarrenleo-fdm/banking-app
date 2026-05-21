@@ -1,20 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Billing{% endblock %}
+{% block page_title %}Billing{% endblock %}
 {% block content %}
-  <section class="panel">
-    <h1>Billing</h1>
-    <p>Pay bills directly from your account balance.</p>
-  </section>
 
-  {% if messages %}
-    <ul class="messages">
-      {% for message in messages %}
-        <li class="{{ message.tags }}">{{ message }}</li>
-      {% endfor %}
-    </ul>
-  {% endif %}
-
-  <section class="grid" aria-label="Billing actions">
+  <div class="grid">
     <div class="card">
       <h2>Pay a Bill</h2>
       {% if billers %}
@@ -42,16 +31,19 @@
         <label for="{{ add_biller_form.name.id_for_label }}">Biller Name</label>
         {{ add_biller_form.name }}
         {{ add_biller_form.name.errors }}
-        <label for="{{ add_biller_form.reference.id_for_label }}">Reference (optional)</label>
+        <label for="{{ add_biller_form.reference.id_for_label }}">Reference</label>
         {{ add_biller_form.reference }}
         {{ add_biller_form.reference.errors }}
         <p><button type="submit">Add Biller</button></p>
       </form>
     </div>
-  </section>
+  </div>
 
-  <section class="panel">
-    <h2>Saved Billers</h2>
+  <div class="panel">
+    <div class="panel-hdr">
+      <h2 style="margin-bottom:0">Saved Billers</h2>
+      <a class="panel-link" href="{% url 'banking:billing_history' %}">Payment history</a>
+    </div>
     {% if billers %}
       <table>
         <thead>
@@ -64,12 +56,12 @@
         <tbody>
           {% for biller in billers %}
             <tr>
-              <td>{{ biller.name }}</td>
-              <td>{{ biller.reference|default:"—" }}</td>
+              <td>{{ biller.get_name_display }}</td>
+              <td style="font-family:'JetBrains Mono',monospace;font-size:12px">{{ biller.reference|default:"—" }}</td>
               <td>
                 <form method="post" action="{% url 'banking:remove_biller' biller.pk %}">
                   {% csrf_token %}
-                  <button type="submit">Remove</button>
+                  <button class="btn-danger" type="submit">Remove</button>
                 </form>
               </td>
             </tr>
@@ -77,8 +69,8 @@
         </tbody>
       </table>
     {% else %}
-      <p>No saved billers.</p>
+      <p class="empty-state">No saved billers.</p>
     {% endif %}
-    <p><a href="{% url 'banking:billing_history' %}">View bill payment history</a></p>
-  </section>
+  </div>
+
 {% endblock %}

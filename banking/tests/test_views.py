@@ -361,7 +361,7 @@ def test_dashboard_shows_personal_label_for_personal_account(client):
 
 # --- US1: Pay a Bill view tests ---
 
-def _make_biller(account, name="SP PowerGrid", reference="ACC-001"):
+def _make_biller(account, name=Biller.ELECTRICITY, reference="ACC-001"):
     return Biller.objects.create(account=account, name=name, reference=reference)
 
 
@@ -432,7 +432,7 @@ def test_pay_bill_view_rejects_another_users_biller(client):
     alice = create_user("Alice", "81234567")
     bob = create_user("Bob", "91234567")
     deposit(alice.account, Decimal("100.00"))
-    bob_biller = _make_biller(bob.account, name="Bob's biller")
+    bob_biller = _make_biller(bob.account, name=Biller.TELECOMMUNICATIONS)
     login(client, alice)
 
     response = client.post(
@@ -453,11 +453,11 @@ def test_add_biller_creates_biller_and_redirects(client):
 
     response = client.post(
         reverse("banking:add_biller"),
-        {"name": "SP PowerGrid", "reference": "ACC-001"},
+        {"name": "ELECTRICITY", "reference": "ACC-001"},
     )
 
     assert response.status_code == 302
-    assert user.account.billers.filter(name="SP PowerGrid").exists()
+    assert user.account.billers.filter(name=Biller.ELECTRICITY).exists()
 
 
 def test_add_biller_with_blank_name_shows_error(client):
@@ -466,11 +466,53 @@ def test_add_biller_with_blank_name_shows_error(client):
 
     response = client.post(
         reverse("banking:add_biller"),
-        {"name": "   ", "reference": ""},
+        {"name": "", "reference": ""},
     )
 
     assert response.status_code == 200
     assert user.account.billers.count() == 0
+
+
+def test_add_biller_rejects_invalid_category_string(client):
+    user = create_user("Alice", "81234567")
+    login(client, user)
+
+    response = client.post(
+        reverse("banking:add_biller"),
+        {"name": "Fake Biller", "reference": ""},
+    )
+
+    assert response.status_code == 200
+    assert user.account.billers.count() == 0
+
+
+def test_add_biller_rejects_blank_reference(client):
+    user = create_user("Alice", "81234567")
+    login(client, user)
+
+    response = client.post(
+        reverse("banking:add_biller"),
+        {"name": "ELECTRICITY", "reference": ""},
+    )
+
+    assert response.status_code == 200
+    assert user.account.billers.count() == 0
+    assert b"reference" in response.content.lower()
+
+
+def test_add_biller_rejects_duplicate_reference_same_category(client):
+    user = create_user("Alice", "81234567")
+    Biller.objects.create(account=user.account, name=Biller.ELECTRICITY, reference="ACC-001")
+    login(client, user)
+
+    response = client.post(
+        reverse("banking:add_biller"),
+        {"name": "ELECTRICITY", "reference": "ACC-001"},
+    )
+
+    assert response.status_code == 200
+    assert user.account.billers.count() == 1
+    assert b"already exists" in response.content.lower()
 
 
 def test_remove_biller_deletes_own_biller_and_redirects(client):

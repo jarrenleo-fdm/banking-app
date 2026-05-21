@@ -103,17 +103,34 @@ class Transaction(models.Model):
 class Biller(models.Model):
     """A named payee saved by a user for repeated bill payments."""
 
+    ELECTRICITY = "ELECTRICITY"
+    WATER_UTILITIES = "WATER_UTILITIES"
+    INTERNET_BROADBAND = "INTERNET_BROADBAND"
+    TELECOMMUNICATIONS = "TELECOMMUNICATIONS"
+    TOWN_COUNCIL = "TOWN_COUNCIL"
+
+    BILLER_CATEGORIES = [
+        (ELECTRICITY, "Electricity"),
+        (WATER_UTILITIES, "Water & Utilities"),
+        (INTERNET_BROADBAND, "Internet & Broadband"),
+        (TELECOMMUNICATIONS, "Telecommunications"),
+        (TOWN_COUNCIL, "Town Council / Maintenance"),
+    ]
+
     account = models.ForeignKey(
         Account,
         on_delete=models.CASCADE,
         related_name="billers",
     )
-    name = models.CharField(max_length=100)
-    reference = models.CharField(max_length=100, blank=True)
+    name = models.CharField(max_length=50, choices=BILLER_CATEGORIES)
+    reference = models.CharField(max_length=100)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        unique_together = [("account", "name", "reference")]
+
     def __str__(self):
-        return str(self.name)
+        return f"{self.get_name_display()} ({self.reference})"
 
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)

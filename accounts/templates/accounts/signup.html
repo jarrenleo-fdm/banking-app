@@ -1,10 +1,11 @@
-{% extends "base.html" %}
+{% extends "base_auth.html" %}
 {% load static %}
 {% block title %}Sign up{% endblock %}
 {% block content %}
-  <section class="panel">
+  <div class="auth-card">
     <h1>Create account</h1>
-    <form method="post" novalidate>
+    <p style="margin-bottom:4px">Open your account today.</p>
+    <form method="post" novalidate style="margin-top:8px">
       {% csrf_token %}
       {{ form.non_field_errors }}
 
@@ -43,10 +44,11 @@
         {{ form.business_registration_number.errors }}
       </div>
 
-      <p><button type="submit">Create account</button></p>
+      <p><button type="submit" style="width:100%;margin-top:20px">Create account</button></p>
     </form>
-    <p>Already registered? <a href="{% url 'accounts:login' %}">Log in</a>.</p>
-  </section>
+  </div>
+  <p class="auth-footer">Already registered? <a href="{% url 'accounts:login' %}">Log in</a></p>
+
   <script src="{% static 'js/password-criteria.js' %}"></script>
   <script>
     (function () {
@@ -59,8 +61,6 @@
       }
 
       radios.forEach(function (r) { r.addEventListener('change', toggle); });
-
-      // Restore state on page load (e.g. after validation error rerender)
       toggle();
     }());
   </script>

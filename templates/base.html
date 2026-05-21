@@ -3,38 +3,82 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Banking App{% endblock %}</title>
+  <title>{% block title %}Banking{% endblock %} — Banking</title>
   {% load static %}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,300;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{% static 'css/styles.css' %}">
 </head>
 <body>
-  <header class="site-header">
-    <nav class="nav">
-      <a class="brand" href="{% url 'banking:dashboard' %}">Banking App</a>
-      <div class="nav-links">
-        {% if user.is_authenticated %}
-          <a href="{% url 'banking:dashboard' %}">Dashboard</a>
-          <a href="{% url 'banking:transactions' %}">Transactions</a>
-          <form method="post" action="{% url 'accounts:logout' %}" class="inline-form">
-            {% csrf_token %}
-            <button type="submit">Logout</button>
-          </form>
-        {% else %}
-          <a href="{% url 'accounts:login' %}">Login</a>
-          <a href="{% url 'accounts:signup' %}">Sign up</a>
-        {% endif %}
+
+<div class="shell">
+  <nav class="sidebar">
+    <a class="logotype" href="{% url 'banking:dashboard' %}">
+      <svg class="logo-mark" viewBox="0 0 26 26" fill="none">
+        <circle cx="13" cy="13" r="12" stroke="#2c5fc4" stroke-width="1" stroke-opacity="0.25"/>
+        <path d="M13 4L14.6 10.4L21 13L14.6 15.6L13 22L11.4 15.6L5 13L11.4 10.4Z" fill="#2c5fc4" opacity="0.9"/>
+      </svg>
+      <span class="logo-text">Banking</span>
+    </a>
+
+    <span class="nav-label">Overview</span>
+
+    <a class="nav-link {% if request.resolver_match.url_name == 'dashboard' %}active{% endif %}"
+       href="{% url 'banking:dashboard' %}">
+      <svg class="nav-ico" viewBox="0 0 15 15" fill="currentColor">
+        <path d="M1 1h6v6H1V1zm0 7h6v6H1V8zm7-7h6v6H8V1zm0 7h6v6H8V8z"/>
+      </svg>
+      Dashboard
+    </a>
+
+    <a class="nav-link {% if request.resolver_match.url_name == 'transactions' %}active{% endif %}"
+       href="{% url 'banking:transactions' %}">
+      <svg class="nav-ico" viewBox="0 0 15 15" fill="currentColor">
+        <path d="M1 2a1 1 0 011-1h11a1 1 0 011 1v11a1 1 0 01-1 1H2a1 1 0 01-1-1V2zm1 0v11h11V2H2zm1 2h3v1H3V4zm0 2h7v1H3V6zm0 2h7v1H3V8zm0 2h4v1H3v-1z"/>
+      </svg>
+      Transactions
+    </a>
+
+    <a class="nav-link {% if request.resolver_match.url_name == 'billing' or request.resolver_match.url_name == 'billing_history' %}active{% endif %}"
+       href="{% url 'banking:billing' %}">
+      <svg class="nav-ico" viewBox="0 0 15 15" fill="currentColor">
+        <path d="M1 3.5A.5.5 0 011.5 3h12a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-12A.5.5 0 011 4.5v-1zm0 4A.5.5 0 011.5 7h12a.5.5 0 01.5.5v1a.5.5 0 01-.5.5h-12A.5.5 0 011 8.5v-1zm3.5 4a.5.5 0 01.5-.5h5a.5.5 0 010 1H5a.5.5 0 01-.5-.5z"/>
+      </svg>
+      Billing
+    </a>
+
+    <div class="sidebar-foot">
+      <div class="user-row">
+        <div class="user-avatar">{{ user.name|first|upper }}</div>
+        <div class="user-meta">
+          <span class="user-name">{{ user.name }}</span>
+          <span class="user-plan">{{ user.account.get_account_type_display }}</span>
+        </div>
       </div>
-    </nav>
-  </header>
-  <main class="content">
-    {% if messages %}
-      <div class="messages">
-        {% for message in messages %}
-          <p class="message {{ message.tags }}">{{ message }}</p>
-        {% endfor %}
-      </div>
-    {% endif %}
-    {% block content %}{% endblock %}
-  </main>
+      <form method="post" action="{% url 'accounts:logout' %}">
+        {% csrf_token %}
+        <button class="logout-btn" type="submit">Log out</button>
+      </form>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="page-heading">{% block page_title %}{% endblock %}</span>
+    </div>
+    <div class="page-body">
+      {% if messages %}
+        <div class="flash-list">
+          {% for message in messages %}
+            <p class="flash {{ message.tags }}">{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
