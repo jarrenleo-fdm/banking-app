@@ -1,0 +1,15 @@
+[MASTER]
+ignore=migrations,tests
+
+[MESSAGES CONTROL]
+disable=
+    duplicate-code,
+    invalid-name,
+    missing-class-docstring,
+    missing-function-docstring,
+    no-member,
+    too-few-public-methods,
+    too-many-arguments,
+    too-many-positional-arguments,
+    unused-argument,
+    wrong-import-order

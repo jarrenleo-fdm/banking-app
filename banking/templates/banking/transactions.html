@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Transactions{% endblock %}
+{% block content %}
+  <section class="panel">
+    <h1>Transactions</h1>
+    {% if transactions %}
+      <table>
+        <thead>
+          <tr>
+            <th>Date/Time</th>
+            <th>Type</th>
+            <th>Amount</th>
+            <th>Balance After</th>
+            <th>Other Party</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for transaction in transactions %}
+            <tr>
+              <td>{{ transaction.timestamp }}</td>
+              <td>{{ transaction.get_transaction_type_display }}</td>
+              <td>${{ transaction.amount|floatformat:2 }}</td>
+              <td>${{ transaction.balance_after|floatformat:2 }}</td>
+              <td>
+                {% if transaction.counterparty %}
+                  {{ transaction.counterparty.user.name }} · {{ transaction.counterparty.user.phone_number }}
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>You have no transactions yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

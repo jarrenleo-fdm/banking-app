@@ -1,0 +1,90 @@
+"""Forms for registration and login."""
+from django import forms
+from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
+
+
+User = get_user_model()
+
+
+class RegistrationForm(forms.ModelForm):
+    """Registration form for the custom user model."""
+
+    password1 = forms.CharField(
+        label="Password",
+        widget=forms.PasswordInput,
+        strip=False,
+    )
+    password2 = forms.CharField(
+        label="Confirm password",
+        widget=forms.PasswordInput,
+        strip=False,
+    )
+
+    class Meta:
+        model = User
+        fields = ["name", "username", "email", "phone_number"]
+
+    def clean_username(self):
+        username = self.cleaned_data["username"].strip()
+        if User.objects.filter(username__iexact=username).exists():
+            raise ValidationError("Username is already taken.")
+        return username
+
+    def clean_email(self):
+        email = self.cleaned_data["email"].lower()
+        if User.objects.filter(email=email).exists():
+            raise ValidationError("Email is already registered.")
+        return email
+
+    def clean_phone_number(self):
+        phone_number = (
+            self.cleaned_data["phone_number"].replace(" ", "").replace("-", "")
+        )
+        if User.objects.filter(phone_number=phone_number).exists():
+            raise ValidationError("Phone number is already registered.")
+        return phone_number
+
+    def clean(self):
+        cleaned = super().clean()
+        password1 = cleaned.get("password1")
+        password2 = cleaned.get("password2")
+        if password1 and password2 and password1 != password2:
+            self.add_error("password2", "Passwords do not match.")
+        if password1:
+            validate_password(password1)
+        return cleaned
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        user.set_password(self.cleaned_data["password1"])
+        if commit:
+            user.save()
+        return user
+
+
+class LoginForm(forms.Form):
+    """Login form that never reveals which credential failed."""
+
+    username = forms.CharField(max_length=150)
+    password = forms.CharField(widget=forms.PasswordInput, strip=False)
+    user = None
+
+    def clean(self):
+        cleaned = super().clean()
+        username = cleaned.get("username")
+        password = cleaned.get("password")
+        if not username or not password:
+            return cleaned
+
+        try:
+            user = User.objects.get(username__iexact=username)
+        except User.DoesNotExist as exc:
+            raise ValidationError("Invalid username or password.") from exc
+
+        if not user.check_password(password) or not user.is_active:
+            raise ValidationError("Invalid username or password.")
+
+        self.user = user
+        return cleaned

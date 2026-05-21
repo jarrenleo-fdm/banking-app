@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.3.0
+    hooks:
+      - id: flake8
+        args: ["--max-line-length=88"]
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.3
+    hooks:
+      - id: bandit
+        args:
+          [
+            "-r",
+            "accounts",
+            "banking",
+            "banking_app",
+            "-x",
+            "accounts/tests,banking/tests,accounts/migrations,banking/migrations",
+          ]
+        pass_filenames: false
+  - repo: https://github.com/pylint-dev/pylint
+    rev: v3.3.7
+    hooks:
+      - id: pylint
+        additional_dependencies:
+          - Django~=5.2.0
+          - django-environ~=0.12.0
+        args: ["--persistent=n", "accounts", "banking", "banking_app"]
+        pass_filenames: false
