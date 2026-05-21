@@ -4,6 +4,8 @@ from decimal import Decimal
 from django import forms
 from django.core.validators import RegexValidator
 
+from .models import Biller
+
 
 class AmountForm(forms.Form):
     """Shared positive amount form."""
@@ -30,6 +32,7 @@ class TransferForm(AmountForm):
         max_length=10,
         validators=[RegexValidator(r"^[89]\d{7}$")],
     )
+    description = forms.CharField(max_length=200, required=False)
 
     def clean_recipient_phone(self):
         return (
@@ -38,3 +41,28 @@ class TransferForm(AmountForm):
             .replace(" ", "")
             .replace("-", "")
         )
+
+
+class BillerForm(forms.Form):
+    """Add a new saved biller."""
+
+    name = forms.CharField(max_length=100)
+    reference = forms.CharField(max_length=100, required=False)
+
+    def clean_name(self):
+        name = self.cleaned_data["name"].strip()
+        if not name:
+            raise forms.ValidationError("Biller name cannot be blank.")
+        return name
+
+
+class BillPaymentForm(forms.Form):
+    """Pay a bill from a saved biller."""
+
+    biller = forms.ModelChoiceField(queryset=Biller.objects.none())
+    amount = forms.DecimalField(min_value=Decimal("0.01"), max_digits=12, decimal_places=2)
+
+    def __init__(self, *args, account=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if account is not None:
+            self.fields["biller"].queryset = account.billers.all()

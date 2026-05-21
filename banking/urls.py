@@ -13,4 +13,13 @@ urlpatterns = [
     path("banking/withdraw/", views.withdraw_view, name="withdraw"),
     path("banking/transfer/", views.transfer_view, name="transfer"),
     path("banking/transactions/", views.transaction_history_view, name="transactions"),
+    path("banking/billing/", views.billing_view, name="billing"),
+    path("banking/billing/pay/", views.pay_bill_view, name="pay_bill"),
+    path("banking/billing/biller/add/", views.add_biller_view, name="add_biller"),
+    path(
+        "banking/billing/biller/<int:biller_id>/remove/",
+        views.remove_biller_view,
+        name="remove_biller",
+    ),
+    path("banking/billing/history/", views.billing_history_view, name="billing_history"),
 ]

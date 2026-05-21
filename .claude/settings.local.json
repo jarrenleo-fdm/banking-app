@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(bash *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip3 show *)",
+      "Bash(pip3 install *)",
+      "Bash(python3 -c \"import secrets; print\\('SECRET_KEY=' + secrets.token_hex\\(50\\)\\)\")",
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://127.0.0.1:8000/accounts/login/)",
+      "Skill(browser-use)",
+      "Bash(.specify/extensions/git/scripts/bash/create-new-feature.sh *)",
+      "Bash(.specify/scripts/bash/setup-plan.sh *)",
+      "Bash(pip show *)",
+      "Bash(.specify/scripts/bash/setup-tasks.sh *)",
+      "Bash(.specify/scripts/bash/check-prerequisites.sh *)",
+      "Bash(pre-commit run *)",
+      "Bash(flake8 *)",
+      "Bash(bandit -r banking/ -q)",
+      "Bash(echo \"flake8 exit: $?\")"
+    ]
+  }
+}

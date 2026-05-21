@@ -5,12 +5,14 @@ import pytest
 from django.contrib.auth import get_user_model
 
 from banking.models import Transaction
+from banking.models import Biller
 from banking.services import (
     InsufficientFundsError,
     InvalidAmountError,
     RecipientNotFoundError,
     SelfTransferError,
     deposit,
+    pay_bill,
     transfer,
     withdraw,
 )
@@ -150,3 +152,85 @@ def test_transfer_rejects_non_positive_amount(amount):
 
     with pytest.raises(InvalidAmountError):
         transfer(alice.account, "91234567", amount)
+
+
+def test_transfer_with_description_stores_it_on_both_records():
+    alice = create_user("Alice", "81234567")
+    create_user("Bob", "91234567")
+    deposit(alice.account, Decimal("100.00"))
+
+    out_txn, in_txn = transfer(
+        alice.account, "91234567", Decimal("30.00"), description="Rent May"
+    )
+
+    assert out_txn.description == "Rent May"
+    assert in_txn.description == "Rent May"
+
+
+def test_transfer_without_description_stores_empty_string():
+    alice = create_user("Alice", "81234567")
+    create_user("Bob", "91234567")
+    deposit(alice.account, Decimal("100.00"))
+
+    out_txn, in_txn = transfer(alice.account, "91234567", Decimal("30.00"))
+
+    assert out_txn.description == ""
+    assert in_txn.description == ""
+
+
+# --- pay_bill service tests ---
+
+def _make_biller(account, name="SP PowerGrid", reference="ACC-001"):
+    return Biller.objects.create(account=account, name=name, reference=reference)
+
+
+def test_pay_bill_deducts_balance_and_creates_bill_payment_transaction():
+    user = create_user("Alice", "81234567")
+    deposit(user.account, Decimal("100.00"))
+    biller = _make_biller(user.account)
+
+    txn = pay_bill(user.account, biller, Decimal("40.00"))
+    user.account.refresh_from_db()
+
+    assert user.account.balance == Decimal("60.00")
+    assert txn.transaction_type == Transaction.BILL_PAYMENT
+    assert txn.amount == Decimal("40.00")
+    assert txn.balance_after == Decimal("60.00")
+    assert txn.description == biller.name
+
+
+def test_pay_bill_stores_biller_name_in_description():
+    user = create_user("Alice", "81234567")
+    deposit(user.account, Decimal("50.00"))
+    biller = _make_biller(user.account, name="Starhub Internet")
+
+    txn = pay_bill(user.account, biller, Decimal("20.00"))
+
+    assert txn.description == "Starhub Internet"
+
+
+def test_pay_bill_raises_insufficient_funds_and_leaves_balance_unchanged():
+    user = create_user("Alice", "81234567")
+    deposit(user.account, Decimal("30.00"))
+    biller = _make_biller(user.account)
+
+    with pytest.raises(InsufficientFundsError):
+        pay_bill(user.account, biller, Decimal("50.00"))
+
+    user.account.refresh_from_db()
+    assert user.account.balance == Decimal("30.00")
+    assert Transaction.objects.filter(transaction_type=Transaction.BILL_PAYMENT).count() == 0
+
+
+@pytest.mark.parametrize("amount", [Decimal("0.00"), Decimal("-1.00")])
+def test_pay_bill_raises_invalid_amount_for_non_positive_values(amount):
+    user = create_user("Alice", "81234567")
+    deposit(user.account, Decimal("100.00"))
+    biller = _make_biller(user.account)
+
+    with pytest.raises(InvalidAmountError):
+        pay_bill(user.account, biller, amount)
+
+    user.account.refresh_from_db()
+    assert user.account.balance == Decimal("100.00")
+    assert Transaction.objects.filter(transaction_type=Transaction.BILL_PAYMENT).count() == 0
