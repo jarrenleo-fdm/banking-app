@@ -4,6 +4,7 @@
   <section class="panel">
     <h1>Dashboard</h1>
     <p>{{ user.name }} · {{ user.phone_number }}</p>
+    <p><span class="account-type-badge">{{ user.account.get_account_type_display }}</span></p>
     <p class="balance">${{ balance|floatformat:2 }}</p>
   </section>
 
@@ -43,6 +44,9 @@
         <label for="{{ transfer_form.amount.id_for_label }}">Amount</label>
         {{ transfer_form.amount }}
         {{ transfer_form.amount.errors }}
+        <label for="{{ transfer_form.description.id_for_label }}">Description (optional)</label>
+        {{ transfer_form.description }}
+        {{ transfer_form.description.errors }}
         <p><button type="submit">Send</button></p>
       </form>
     </div>
@@ -72,6 +76,7 @@
         </tbody>
       </table>
       <p><a href="{% url 'banking:transactions' %}">View full history</a></p>
+      <p><a href="{% url 'banking:billing' %}">Pay Bills</a></p>
     {% else %}
       <p>You have no transactions yet.</p>
     {% endif %}

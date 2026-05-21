@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.db import transaction
 
-from .models import Account, Transaction
+from .models import Account, Biller, Transaction
 
 
 class BankingError(Exception):
@@ -64,8 +64,29 @@ def withdraw(account: Account, amount: Decimal) -> Transaction:
 
 
 @transaction.atomic
+def pay_bill(account: Account, biller: Biller, amount: Decimal) -> Transaction:
+    _validate_amount(amount)
+    account = Account.objects.get(pk=account.pk)
+    if account.balance < amount:
+        raise InsufficientFundsError("Insufficient funds")
+
+    account.balance -= amount
+    account.save(update_fields=["balance"])
+    return Transaction.objects.create(
+        account=account,
+        transaction_type=Transaction.BILL_PAYMENT,
+        amount=amount,
+        balance_after=account.balance,
+        description=biller.name,
+    )
+
+
+@transaction.atomic
 def transfer(
-    sender_account: Account, recipient_phone: str, amount: Decimal
+    sender_account: Account,
+    recipient_phone: str,
+    amount: Decimal,
+    description: str = "",
 ) -> tuple[Transaction, Transaction]:
     _validate_amount(amount)
     recipient_phone = recipient_phone.strip().replace(" ", "").replace("-", "")
@@ -100,6 +121,7 @@ def transfer(
         amount=amount,
         balance_after=sender_account.balance,
         counterparty=recipient_account,
+        description=description,
     )
     in_transaction = Transaction.objects.create(
         account=recipient_account,
@@ -107,5 +129,6 @@ def transfer(
         amount=amount,
         balance_after=recipient_account.balance,
         counterparty=sender_account,
+        description=description,
     )
     return out_transaction, in_transaction

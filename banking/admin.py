@@ -1,7 +1,13 @@
 """Admin registration for banking records."""
 from django.contrib import admin
 
-from .models import Account, Transaction
+from .models import Account, Biller, Transaction
+
+
+@admin.register(Biller)
+class BillerAdmin(admin.ModelAdmin):
+    list_display = ("name", "account", "reference", "created_at")
+    readonly_fields = ("created_at",)
 
 
 @admin.register(Account)
