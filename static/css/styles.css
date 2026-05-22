@@ -1,5 +1,5 @@
 /* ══════════════════════════════════════════
-   DESIGN TOKENS — OpenAI Platform Dark
+   DESIGN TOKENS — Dark (default)
 ══════════════════════════════════════════ */
 :root {
   --bg: #0a0a0a;
@@ -21,6 +21,41 @@
   --radius: 8px;
   --sidebar-w: 216px;
   --topbar-h: 56px;
+  color-scheme: dark;
+}
+
+/* ══════════════════════════════════════════
+   DESIGN TOKENS — Light
+══════════════════════════════════════════ */
+[data-theme="light"] {
+  --bg: #f5f5f5;
+  --bg-card: #ffffff;
+  --bg-elevated: #ebebeb;
+  --bg-hover: #e2e2e2;
+  --text-primary: #111111;
+  --text-secondary: #555555;
+  --text-tertiary: #888888;
+  --accent: #2c5fc4;
+  --accent-bright: #3d6fd9;
+  --accent-dim: rgba(44, 95, 196, 0.1);
+  --accent-border: rgba(44, 95, 196, 0.3);
+  --green: #16a34a;
+  --green-dim: rgba(22, 163, 74, 0.1);
+  --red: #dc2626;
+  --red-dim: rgba(220, 38, 38, 0.1);
+  --border: rgba(0, 0, 0, 0.1);
+  color-scheme: light;
+}
+
+/* ══════════════════════════════════════════
+   THEME TRANSITION
+   Applied only during the toggle via JS class,
+   so hover states stay snappy the rest of the time.
+══════════════════════════════════════════ */
+.theme-transitioning *,
+.theme-transitioning *::before,
+.theme-transitioning *::after {
+  transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease !important;
 }
 
 /* ══════════════════════════════════════════
@@ -237,10 +272,41 @@ a:hover {
 .topbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0 28px;
   height: var(--topbar-h);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+}
+
+.theme-toggle-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+
+.icon-moon { display: none; }
+[data-theme="light"] .icon-sun { display: none; }
+[data-theme="light"] .icon-moon { display: block; }
+
+.auth-shell .theme-toggle-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
 }
 
 .page-heading {
@@ -282,6 +348,7 @@ a:hover {
   padding: 32px 16px;
   gap: 20px;
   background: var(--bg);
+  position: relative;
 }
 
 .auth-brand {

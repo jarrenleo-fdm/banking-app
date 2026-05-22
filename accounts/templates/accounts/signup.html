@@ -1,5 +1,7 @@
-{% extends "base_auth.html" %} {% load static %} {% block title %}Sign up{%
-endblock %} {% block content %}
+{% extends "base_auth.html" %}
+{% load static %}
+{% block title %}Sign up{% endblock %}
+{% block content %}
 <div class="auth-card">
   <h1>Create account</h1>
   <p style="margin-bottom: 4px">Open your account today.</p>
@@ -30,12 +32,16 @@ endblock %} {% block content %}
       {{ form.account_type.errors }}
     </fieldset>
 
-    {% for field in form %} {% if field.name == "account_type" %} {# rendered
-    above as radio buttons #} {% elif field.name == "company_name" or field.name
-    == "business_registration_number" %} {# rendered below in the
-    business-fields section #} {% else %}
-    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-    {{ field }} {{ field.errors }} {% endif %} {% endfor %}
+    {% for field in form %}
+      {% if field.name == "account_type" %}
+        {# rendered above as radio buttons #}
+      {% elif field.name == "company_name" or field.name == "business_registration_number" %}
+        {# rendered below in the business-fields section #}
+      {% else %}
+        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }} {{ field.errors }}
+      {% endif %}
+    {% endfor %}
 
     <div id="business-fields" style="display: none">
       <label for="{{ form.company_name.id_for_label }}"
@@ -46,8 +52,7 @@ endblock %} {% block content %}
       <label for="{{ form.business_registration_number.id_for_label }}"
         >{{ form.business_registration_number.label }}</label
       >
-      {{ form.business_registration_number }} {{
-      form.business_registration_number.errors }}
+      {{ form.business_registration_number }} {{ form.business_registration_number.errors }}
     </div>
 
     <p>

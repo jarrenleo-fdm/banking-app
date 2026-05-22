@@ -1,5 +1,7 @@
-{% extends "base.html" %} {% block title %}Transactions{% endblock %} {% block
-page_title %}Transactions{% endblock %} {% block content %}
+{% extends "base.html" %}
+{% block title %}Transactions{% endblock %}
+{% block page_title %}Transactions{% endblock %}
+{% block content %}
 
 <div class="panel">
   {% if transactions %}
@@ -41,15 +43,14 @@ page_title %}Transactions{% endblock %} {% block content %}
           >
         </td>
         <td>
-          {% if transaction.transaction_type == "TRANSFER_OUT" and
-          transaction.counterparty %} To: {{ transaction.counterparty.user.name
-          }} · {{ transaction.counterparty.user.phone_number }} {% elif
-          transaction.transaction_type == "TRANSFER_IN" and
-          transaction.counterparty %} From: {{
-          transaction.counterparty.user.name }} · {{
-          transaction.counterparty.user.phone_number }} {% endif %} {% if
-          transaction.description %}
-          <br />{{ transaction.description }} {% endif %}
+          {% if transaction.transaction_type == "TRANSFER_OUT" and transaction.counterparty %}
+            To: {{ transaction.counterparty.user.name }} · {{ transaction.counterparty.user.phone_number }}
+          {% elif transaction.transaction_type == "TRANSFER_IN" and transaction.counterparty %}
+            From: {{ transaction.counterparty.user.name }} · {{ transaction.counterparty.user.phone_number }}
+          {% endif %}
+          {% if transaction.description %}
+            <br />{{ transaction.description }}
+          {% endif %}
         </td>
       </tr>
       {% endfor %}
