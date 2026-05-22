@@ -1,11 +1,10 @@
-{% extends "base_auth.html" %}
-{% block title %}Logout{% endblock %}
-{% block content %}
-  <section class="panel">
-    <h1>Logout</h1>
-    <form method="post">
-      {% csrf_token %}
-      <button type="submit">Logout</button>
-    </form>
-  </section>
+{% extends "base_auth.html" %} {% block title %}Logout{% endblock %} {% block
+content %}
+<section class="panel">
+  <h1>Logout</h1>
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit">Logout</button>
+  </form>
+</section>
 {% endblock %}

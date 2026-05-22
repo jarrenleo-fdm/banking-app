@@ -1,76 +1,82 @@
-{% extends "base.html" %}
-{% block title %}Billing{% endblock %}
-{% block page_title %}Billing{% endblock %}
-{% block content %}
+{% extends "base.html" %} {% block title %}Billing{% endblock %} {% block
+page_title %}Billing{% endblock %} {% block content %}
 
-  <div class="grid">
-    <div class="card">
-      <h2>Pay a Bill</h2>
-      {% if billers %}
-        <form method="post" action="{% url 'banking:pay_bill' %}" novalidate>
-          {% csrf_token %}
-          {{ pay_form.non_field_errors }}
-          <label for="{{ pay_form.biller.id_for_label }}">Biller</label>
-          {{ pay_form.biller }}
-          {{ pay_form.biller.errors }}
-          <label for="{{ pay_form.amount.id_for_label }}">Amount</label>
-          {{ pay_form.amount }}
-          {{ pay_form.amount.errors }}
-          <p><button type="submit">Pay</button></p>
-        </form>
-      {% else %}
-        <p>Add a biller below to get started.</p>
-      {% endif %}
-    </div>
-
-    <div class="card">
-      <h2>Add Biller</h2>
-      <form method="post" action="{% url 'banking:add_biller' %}" novalidate>
-        {% csrf_token %}
-        {{ add_biller_form.non_field_errors }}
-        <label for="{{ add_biller_form.name.id_for_label }}">Biller Name</label>
-        {{ add_biller_form.name }}
-        {{ add_biller_form.name.errors }}
-        <label for="{{ add_biller_form.reference.id_for_label }}">Reference</label>
-        {{ add_biller_form.reference }}
-        {{ add_biller_form.reference.errors }}
-        <p><button type="submit">Add Biller</button></p>
-      </form>
-    </div>
-  </div>
-
-  <div class="panel">
-    <div class="panel-hdr">
-      <h2 style="margin-bottom:0">Saved Billers</h2>
-      <a class="panel-link" href="{% url 'banking:billing_history' %}">Payment history</a>
-    </div>
+<div class="grid">
+  <div class="card">
+    <h2>Pay a Bill</h2>
     {% if billers %}
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Reference</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for biller in billers %}
-            <tr>
-              <td>{{ biller.get_name_display }}</td>
-              <td style="font-family:'JetBrains Mono',monospace;font-size:12px">{{ biller.reference|default:"—" }}</td>
-              <td>
-                <form method="post" action="{% url 'banking:remove_biller' biller.pk %}">
-                  {% csrf_token %}
-                  <button class="btn-danger" type="submit">Remove</button>
-                </form>
-              </td>
-            </tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <form method="post" action="{% url 'banking:pay_bill' %}" novalidate>
+      {% csrf_token %} {{ pay_form.non_field_errors }}
+      <label for="{{ pay_form.biller.id_for_label }}">Biller</label>
+      {{ pay_form.biller }} {{ pay_form.biller.errors }}
+      <label for="{{ pay_form.amount.id_for_label }}">Amount</label>
+      {{ pay_form.amount }} {{ pay_form.amount.errors }}
+      <p><button type="submit">Pay</button></p>
+    </form>
     {% else %}
-      <p class="empty-state">No saved billers.</p>
+    <p>Add a biller below to get started.</p>
     {% endif %}
   </div>
+
+  <div class="card">
+    <h2>Add Biller</h2>
+    <form method="post" action="{% url 'banking:add_biller' %}" novalidate>
+      {% csrf_token %} {{ add_biller_form.non_field_errors }}
+      <label for="{{ add_biller_form.name.id_for_label }}">Biller Name</label>
+      {{ add_biller_form.name }} {{ add_biller_form.name.errors }}
+      <label for="{{ add_biller_form.reference.id_for_label }}"
+        >Reference</label
+      >
+      {{ add_biller_form.reference }} {{ add_biller_form.reference.errors }}
+      <p><button type="submit">Add Biller</button></p>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hdr">
+    <h2 style="margin-bottom: 0">Saved Billers</h2>
+    <a class="panel-link" href="{% url 'banking:billing_history' %}"
+      >Payment history</a
+    >
+  </div>
+  {% if billers %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Reference</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for biller in billers %}
+      <tr>
+        <td>{{ biller.get_name_display }}</td>
+        <td
+          style="
+            font-family: &quot;JetBrains Mono&quot;, monospace;
+            font-size: 12px;
+          "
+        >
+          {{ biller.reference|default:"—" }}
+        </td>
+        <td>
+          <form
+            method="post"
+            action="{% url 'banking:remove_biller' biller.pk %}"
+          >
+            {% csrf_token %}
+            <button class="btn-danger" type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No saved billers.</p>
+  {% endif %}
+</div>
 
 {% endblock %}

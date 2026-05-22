@@ -1,34 +1,46 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Banking{% endblock %} — Banking</title>
-  {% load static %}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/styles.css' %}">
-</head>
-<body>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Banking{% endblock %} — Banking</title>
+    {% load static %}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="{% static 'css/styles.css' %}" />
+  </head>
 
-<div class="auth-shell">
-  <a class="auth-brand" href="{% url 'accounts:login' %}">
-    <svg class="logo-mark" viewBox="0 0 26 26" fill="none">
-      <circle cx="13" cy="13" r="12" stroke="#2c5fc4" stroke-width="1" stroke-opacity="0.25"/>
-      <path d="M13 4L14.6 10.4L21 13L14.6 15.6L13 22L11.4 15.6L5 13L11.4 10.4Z" fill="#2c5fc4" opacity="0.9"/>
-    </svg>
-    <span class="logo-text">Banking</span>
-  </a>
-  {% if messages %}
-    <div class="flash-list" style="width:100%;max-width:400px">
-      {% for message in messages %}
+  <body>
+    <div class="auth-shell">
+      <a class="auth-brand" href="{% url 'accounts:login' %}">
+        <svg class="logo-mark" viewBox="0 0 26 26" fill="none">
+          <circle
+            cx="13"
+            cy="13"
+            r="12"
+            stroke="#2c5fc4"
+            stroke-width="1"
+            stroke-opacity="0.25"
+          />
+          <path
+            d="M13 4L14.6 10.4L21 13L14.6 15.6L13 22L11.4 15.6L5 13L11.4 10.4Z"
+            fill="#2c5fc4"
+            opacity="0.9"
+          />
+        </svg>
+        <span class="logo-text">Banking</span>
+      </a>
+      {% if messages %}
+      <div class="flash-list" style="width: 100%; max-width: 400px">
+        {% for message in messages %}
         <p class="flash {{ message.tags }}">{{ message }}</p>
-      {% endfor %}
+        {% endfor %}
+      </div>
+      {% endif %} {% block content %}{% endblock %}
     </div>
-  {% endif %}
-  {% block content %}{% endblock %}
-</div>
-
-</body>
+  </body>
 </html>
