@@ -1,5 +1,7 @@
-{% extends "base.html" %} {% block title %}Dashboard{% endblock %} {% block
-page_title %}Dashboard{% endblock %} {% block content %}
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block content %}
 
 <div class="balance-hero">
   <div class="balance-hero-inner">
@@ -44,8 +46,7 @@ page_title %}Dashboard{% endblock %} {% block content %}
       <label for="{{ transfer_form.recipient_phone.id_for_label }}"
         >Recipient phone</label
       >
-      {{ transfer_form.recipient_phone }} {{
-      transfer_form.recipient_phone.errors }}
+      {{ transfer_form.recipient_phone }} {{ transfer_form.recipient_phone.errors }}
       <label for="{{ transfer_form.amount.id_for_label }}">Amount</label>
       {{ transfer_form.amount }} {{ transfer_form.amount.errors }}
       <label for="{{ transfer_form.description.id_for_label }}"
