@@ -17,21 +17,21 @@ Add a light/dark mode theme toggle to all pages of the banking application. The 
 **Project Type**: Web application (Django monolith — server-rendered templates, minimal client JS)  
 **Performance Goals**: Theme switch completes in under 300ms perceived by user  
 **Constraints**: No flash of wrong theme on page load (init script runs in `<head>` before first paint); no server round-trips for theme preference  
-**Scale/Scope**: Affects all authenticated and unauthenticated views; two base templates cover all pages  
+**Scale/Scope**: Affects all authenticated and unauthenticated views; two base templates cover all pages
 
 **Active Tier: Prototype / Learning**
 
 ## Constitution Check
 
-*GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
+_GATE: Must pass before Phase 0 research. Re-check after Phase 1 design._
 
-| Principle | Status | Notes |
-|-----------|--------|-------|
-| I — Security | ✅ PASS | Theme toggle is purely cosmetic; no user data exposed, no session/auth change, no XSS risk (sets `dataset.theme`, never `innerHTML`). All Django security middleware remains untouched. |
-| II — Test-First | ✅ PASS | Tests written before implementation. Template tests verify toggle control presence and correct `data-theme` initialization in HTML. JS behavior is non-financial and covered by manual verification (no JS test runner in project). |
-| III — SonarQube | ✅ PASS (tier) | Prototype tier — SonarQube not required. Compensating controls: flake8, pylint, bandit run locally before each commit. |
-| IV — Auditability | ✅ PASS | Theme preference is cosmetic; no audit record required. No financial or security event involved. |
-| V — Data Integrity | ✅ PASS | No database changes; no monetary values involved. |
+| Principle          | Status         | Notes                                                                                                                                                                                                                               |
+| ------------------ | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| I — Security       | ✅ PASS        | Theme toggle is purely cosmetic; no user data exposed, no session/auth change, no XSS risk (sets `dataset.theme`, never `innerHTML`). All Django security middleware remains untouched.                                             |
+| II — Test-First    | ✅ PASS        | Tests written before implementation. Template tests verify toggle control presence and correct `data-theme` initialization in HTML. JS behavior is non-financial and covered by manual verification (no JS test runner in project). |
+| III — SonarQube    | ✅ PASS (tier) | Prototype tier — SonarQube not required. Compensating controls: flake8, pylint, bandit run locally before each commit.                                                                                                              |
+| IV — Auditability  | ✅ PASS        | Theme preference is cosmetic; no audit record required. No financial or security event involved.                                                                                                                                    |
+| V — Data Integrity | ✅ PASS        | No database changes; no monetary values involved.                                                                                                                                                                                   |
 
 Post-design re-check: **All gates still pass.** No database migrations. No new endpoints. No money-moving code.
 

@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}Authoriser Queue{% endblock %}
+{% block page_title %}Authoriser Queue{% endblock %}
+{% block content %}
+
+<div class="panel">
+  {% if pending_txns %}
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Amount</th>
+        <th>Description</th>
+        <th>Submitted</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pt in pending_txns %}
+      <tr>
+        <td>{{ pt.get_transaction_type_display }}</td>
+        <td><span class="amount debit">${{ pt.amount|floatformat:2|intcomma }}</span></td>
+        <td>{{ pt.description|default:"—" }}</td>
+        <td>{{ pt.created_at }}</td>
+        <td style="display: flex; gap: 8px;">
+          <form method="post" action="{% url 'banking:approve_transaction' pt.pk %}">
+            {% csrf_token %}
+            <button type="submit">Approve</button>
+          </form>
+          <form method="post" action="{% url 'banking:reject_transaction' pt.pk %}">
+            {% csrf_token %}
+            <button type="submit" style="background: var(--danger, red);">Reject</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No pending transactions to review.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

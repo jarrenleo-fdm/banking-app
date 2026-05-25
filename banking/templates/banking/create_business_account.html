@@ -1,0 +1,33 @@
+{% extends "base_auth.html" %}
+{% block title %}Create Business Account{% endblock %}
+{% block content %}
+<div class="auth-card">
+  <h1>Create Business Account</h1>
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <label for="{{ form.company_name.id_for_label }}">{{ form.company_name.label }}</label>
+    {{ form.company_name }} {{ form.company_name.errors }}
+
+    <label for="{{ form.uen.id_for_label }}">{{ form.uen.label }}</label>
+    {{ form.uen }} {{ form.uen.errors }}
+
+    <label for="{{ form.street.id_for_label }}">{{ form.street.label }}</label>
+    {{ form.street }} {{ form.street.errors }}
+
+    <label for="{{ form.city.id_for_label }}">{{ form.city.label }}</label>
+    {{ form.city }} {{ form.city.errors }}
+
+    <label for="{{ form.postal_code.id_for_label }}">{{ form.postal_code.label }}</label>
+    {{ form.postal_code }} {{ form.postal_code.errors }}
+
+    <p>
+      <button type="submit" style="width: 100%; margin-top: 20px">Create Business Account</button>
+    </p>
+  </form>
+  <p style="text-align: center; margin-top: 16px">
+    <a href="{% url 'accounts:login' %}">&larr; Back to login</a>
+  </p>
+</div>
+{% endblock %}

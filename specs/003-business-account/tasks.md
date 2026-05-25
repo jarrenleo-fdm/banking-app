@@ -1,99 +1,145 @@
 # Tasks: Business Account Registration
 
-**Input**: Design documents from `specs/003-business-account/`
-**Prerequisites**: plan.md ✅ spec.md ✅ research.md ✅ data-model.md ✅ contracts/views.md ✅ quickstart.md ✅
+**Input**: Design documents from `/specs/003-business-account/`
+**Prerequisites**: plan.md ✓, spec.md ✓, research.md ✓, data-model.md ✓, contracts/views.md ✓, quickstart.md ✓
 
-**Tests**: Included — Constitution Principle II (Test-First, NON-NEGOTIABLE) requires tests written before implementation.
+**Tests**: Included — Constitution §II (NON-NEGOTIABLE) requires Red-Green-Refactor for all service functions and views. Write tests first; verify they FAIL before implementing.
 
-**Organization**: Tasks grouped by user story to enable independent implementation and testing of each story.
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing.
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies on each other)
-- **[Story]**: Which user story this task belongs to
-- Tests MUST be written first and confirmed failing before the matching implementation tasks
+- **[P]**: Can run in parallel (different files, no dependencies on other incomplete tasks)
+- **[Story]**: Which user story this task belongs to (US1, US2, US3)
+- Paths are project-relative
 
 ---
 
-## Phase 1: Foundational — Data Model
+## Phase 1: Setup — Remove Wrong Model Code
 
-**Purpose**: Schema changes that ALL user stories depend on. No user story work can begin until this phase is complete.
+**Purpose**: Delete all wrong-model code (BusinessProfile, manage_authorisers flow, old business-branch logic) before introducing the new model. Prevents migration conflicts.
 
-**⚠️ CRITICAL**: Complete this phase before any Phase 2+ work.
+**⚠️ CRITICAL**: Must complete before Phase 2. Wrong-model migrations (0006/0007/0008) must be discarded.
 
-> **Write model tests FIRST and confirm they FAIL before adding model fields**
+- [X] T001 Assess migration state: run `python manage.py showmigrations banking` — if 0006/0007/0008 are unapplied, delete banking/migrations/0006_*.py, banking/migrations/0007_*.py, banking/migrations/0008_*.py to restore baseline at 0005; if applied, note this and squash in Phase 2's migration task
+- [X] T002 [P] Delete `manage_authorisers.html` template at banking/templates/banking/manage_authorisers.html
+- [X] T003 [P] Remove URL patterns for `manage_authorisers/`, `add/`, `<int:pk>/remove/`, `pending/`, `dashboard/dismiss-no-authoriser-warning/` from banking/urls.py
+- [X] T004 [P] Delete `AddAuthoriserForm` from banking/forms.py
+- [X] T005 Delete `manage_authorisers_view`, `add_authoriser_view`, `remove_authoriser_view`, `dismiss_no_authoriser_warning_view`, `pending_transactions_view` from banking/views.py; remove old business-branch logic in `withdraw_view`, `transfer_view`, `pay_bill_view`; remove no-authoriser banner logic in `dashboard_view` (new branches are added in Phase 4)
+- [X] T006 Delete `BusinessProfile` model from banking/models.py; remove `account_type` CharField and its `PERSONAL`/`BUSINESS` choices from `Account` model in banking/models.py
 
-- [x] T001 Write model tests asserting `Account.account_type` defaults to `PERSONAL`, can be set to `BUSINESS`, and is saved correctly; assert `BusinessProfile` can be created with `account`, `company_name`, and `business_registration_number`; assert `business_registration_number` unique constraint raises `IntegrityError` on duplicate in `banking/tests/test_models.py`
-- [x] T002 Add `account_type` field to `Account` model (choices: PERSONAL/BUSINESS, default PERSONAL, max_length=10) in `banking/models.py` (depends on T001 failing)
-- [x] T003 Add `BusinessProfile` model (OneToOne → Account, `company_name` CharField(200), `business_registration_number` CharField(20) unique, `RegexValidator(r'^[A-Za-z0-9]{6,20}$')`) in `banking/models.py` (depends on T001 failing)
-- [x] T004 Generate and apply migration: `python manage.py makemigrations banking` then `python manage.py migrate` — verify `Account` table has new column and `BusinessProfile` table exists (depends on T002, T003)
-
-**Checkpoint**: Run `pytest banking/tests/test_models.py` — all T001 model tests pass. Migration applies cleanly.
+**Checkpoint**: `python manage.py check` passes with no errors; no import references to BusinessProfile, AddAuthoriserForm, or removed views remain
 
 ---
 
-## Phase 2: User Story 1 — Register Business Account (Priority: P1) 🎯 MVP
+## Phase 2: Foundational — Data Model & Migration
 
-**Goal**: A visitor can register a business account by selecting "Business", filling in company name and registration number, and completing the standard registration fields. The correct models are created on submission.
+**Purpose**: Introduce the correct data model. All three user stories depend on these entities and the applied migration.
 
-**Independent Test**: POST to `/accounts/signup/` with `account_type=BUSINESS`, valid personal fields, `company_name`, and a unique `business_registration_number` — expect redirect to dashboard, `BusinessProfile` row in DB, `account.account_type == BUSINESS`.
+**⚠️ CRITICAL**: No user story work can begin until this phase is complete and migration is applied.
 
-### Tests for User Story 1
+- [X] T007 Add `BusinessAccount` model to banking/models.py with fields: `company_name` CharField(200), `uen` CharField(50) unique=True, `street` CharField(200), `city` CharField(100), `postal_code` CharField(20), `balance` DecimalField(max_digits=12, decimal_places=2, default=Decimal('0.00')), `created_at` DateTimeField(auto_now_add=True)
+- [X] T008 [P] Add `AccountManagerProfile` model to banking/models.py with fields: `user` OneToOneField(CustomUser, CASCADE, related_name='manager_profile'), `business_account` OneToOneField(BusinessAccount, CASCADE, related_name='manager')
+- [X] T009 [P] Add `BusinessTransaction` model to banking/models.py with fields: `business_account` ForeignKey(BusinessAccount, PROTECT, related_name='transactions'), `transaction_type` CharField(20, choices: DEPOSIT/WITHDRAWAL/TRANSFER_OUT/BILL_PAYMENT/REJECTED), `amount` DecimalField(12,2), `balance_after` DecimalField(12,2), `counterparty` ForeignKey(Account, SET_NULL, null=True, blank=True), `description` CharField(200, blank=True), `timestamp` DateTimeField(auto_now_add=True); Meta ordering=['-timestamp']
+- [X] T010 Modify `Authoriser` model in banking/models.py: change `business_account` from ForeignKey→Account to OneToOneField(BusinessAccount, CASCADE, related_name='authoriser'); change `user` from ForeignKey to OneToOneField(CustomUser, PROTECT, related_name='authoriser_profile'); remove `assigned_by` ForeignKey field; remove `unique_together` constraint
+- [X] T011 Modify `PendingTransaction` model in banking/models.py: rename field `account` → `business_account` as ForeignKey(BusinessAccount, PROTECT, related_name='pending_transactions'); remove `biller` ForeignKey; retain `counterparty` FK→Account SET_NULL null/blank; retain `description`, `status` (PENDING/APPROVED/REJECTED/CANCELLED), `decided_at`, `decided_by` fields
+- [X] T012 Generate migration: run `python manage.py makemigrations banking --name business_account_revised_model`; review the generated migration file to confirm it covers BusinessAccount/AccountManagerProfile/BusinessTransaction creation, Authoriser and PendingTransaction alterations, account_type removal, BusinessProfile drop
+- [X] T013 Apply migration: run `python manage.py migrate banking`; verify with `python manage.py showmigrations banking`
+- [X] T014 [P] Register BusinessAccount, AccountManagerProfile, BusinessTransaction, Authoriser, PendingTransaction in banking/admin.py; remove BusinessProfile registration if present
 
-> **Write these tests FIRST and confirm they FAIL before implementing**
+**Checkpoint**: `python manage.py migrate` succeeds; `python manage.py shell -c "from banking.models import BusinessAccount, AccountManagerProfile, BusinessTransaction; print('OK')"` exits cleanly
 
-- [x] T005 [P] [US1] Write view tests for POST `/accounts/signup/` with `account_type=BUSINESS`: (a) all valid fields → redirect to dashboard, `BusinessProfile` created, `account.account_type == BUSINESS`; (b) missing `company_name` → 200 with form error; (c) missing `business_registration_number` → 200 with form error; (d) `business_registration_number` invalid format (< 6 chars) → 200 with form error; (e) duplicate `business_registration_number` → 200 with error "This registration number is already in use." in `accounts/tests/test_views.py`
-- [x] T006 [P] [US1] Write view test for POST `/accounts/signup/` with `account_type=PERSONAL` and no business fields → expect redirect to dashboard, no `BusinessProfile` created, `account.account_type == PERSONAL` in `accounts/tests/test_views.py`
+---
+
+## Phase 3: User Story 1 — Create Business Account (Priority: P1) 🎯 MVP
+
+**Goal**: A public form at `/business/create/` runs mock SQL creating a BusinessAccount + AccountManagerProfile user + Authoriser user, then displays generated credentials once on `/business/created/`.
+
+**Independent Test**: Visit `/business/create/`, fill in valid business name, UEN, and address; submit; confirm credentials for both manager and authoriser appear on screen; log in as each user.
+
+### Tests for User Story 1 — Write FIRST, verify FAIL before implementing (Constitution §II)
+
+- [X] T015 [P] [US1] Write service tests in banking/tests/test_services.py: `test_create_business_account_mock_creates_business_account`, `test_create_business_account_mock_creates_manager_and_authoriser_users`, `test_create_business_account_mock_generates_sequential_phone_numbers` (manager=odd 80000001+, authoriser=even 80000002+), `test_create_business_account_mock_returns_credentials_dict`, `test_create_business_account_mock_duplicate_uen_raises`, `test_create_business_account_mock_collision_increments_username_suffix`
+- [X] T016 [P] [US1] Write view tests in banking/tests/test_views.py: `test_create_business_account_view_get_renders_form`, `test_create_business_account_view_post_valid_redirects_to_created`, `test_create_business_account_view_post_blank_field_returns_error`, `test_create_business_account_view_post_duplicate_uen_returns_error`, `test_business_account_created_view_with_credentials_in_session`, `test_business_account_created_view_no_session_redirects_to_create`, `test_business_account_created_view_clears_session_after_display`
 
 ### Implementation for User Story 1
 
-- [x] T007 [US1] Add `account_type` ChoiceField (choices: PERSONAL/BUSINESS, default PERSONAL), `company_name` CharField (not required at field level), and `business_registration_number` CharField with `RegexValidator` (not required at field level) to `RegistrationForm` in `accounts/forms.py` (depends on T005, T006 failing)
-- [x] T008 [US1] Add `clean()` override to `RegistrationForm` in `accounts/forms.py`: if `account_type == BUSINESS`, validate `company_name` is non-blank and `business_registration_number` is provided and unique (query `BusinessProfile.objects.filter(business_registration_number=...)`) (depends on T007)
-- [x] T009 [US1] Update `signup_view` in `accounts/views.py`: after `form.save()` and account signal, if `account_type == BUSINESS` → `account.account_type = BUSINESS`, `account.save(update_fields=["account_type"])`, `BusinessProfile.objects.create(account=account, company_name=..., business_registration_number=...)` (depends on T007, T008)
+- [X] T017 [US1] Implement `create_business_account_mock(company_name, uen, street, city, postal_code)` in banking/services.py wrapped in `@transaction.atomic`: create BusinessAccount; derive slug from company_name (lowercase, strip non-alphanumeric, truncate to 20 chars); generate usernames `manager.<slug>` / `authoriser.<slug>` with numeric suffix on collision; query existing phone numbers and assign next odd slot ≥ 80000001 to manager and next even slot ≥ 80000002 to authoriser; generate passwords as `"Demo@" + 6 random chars from letters+digits`; create CustomUser + Account (personal, zero balance) for each; create AccountManagerProfile and Authoriser linked to BusinessAccount; return dict with manager_username, manager_password, manager_phone, authoriser_username, authoriser_password, authoriser_phone
+- [X] T018 [US1] Add `BusinessAccountCreationForm` to banking/forms.py: fields `company_name`, `uen`, `street`, `city`, `postal_code`; `clean()` validates all fields non-blank/non-whitespace; `clean_uen()` checks BusinessAccount uniqueness and raises ValidationError("A business account with this UEN already exists.") on duplicate
+- [X] T019 [US1] Implement `create_business_account_view` (GET+POST, no `@login_required`) in banking/views.py: GET renders empty BusinessAccountCreationForm; POST validates form, calls `create_business_account_mock`, stores credentials in `request.session['business_created_credentials']`, redirects to `/business/created/?id=<biz_id>`; on invalid form re-renders with errors
+- [X] T020 [US1] Implement `business_account_created_view` in banking/views.py: pops `request.session.pop('business_created_credentials', None)`; if None redirects to `/business/create/`; else renders template with credentials
+- [X] T021 [P] [US1] Create banking/templates/banking/create_business_account.html: form with company_name, uen, street, city, postal_code fields; CSRF token; field-level error display; submit button labelled "Create Business Account"
+- [X] T022 [P] [US1] Create banking/templates/banking/business_account_created.html: table with columns Role/Username/Password/Phone for manager and authoriser rows; prominent "one-time display" warning; link to log in or return to `/business/create/`
+- [X] T023 [US1] Add URL patterns to banking/urls.py: `path('business/create/', create_business_account_view, name='create_business_account')` and `path('business/created/', business_account_created_view, name='business_account_created')` (no login_required wrapper)
 
-**Checkpoint**: Run `pytest accounts/tests/test_views.py` — all T005 and T006 tests pass. Business account registration creates the correct DB records.
+**Checkpoint**: All T015/T016 tests pass; manually follow quickstart Flow 1 — credentials shown once, both users can log in
 
 ---
 
-## Phase 3: User Story 2 — Account Type Label on Dashboard (Priority: P2)
+## Phase 4: User Story 2 — Account Manager Submits a Transaction (Priority: P1)
 
-**Goal**: Logged-in users see their account type ("Personal" or "Business") clearly labelled on the dashboard.
+**Goal**: Account manager logs in and sees a business account dashboard. Deposits execute immediately; outgoing transactions (withdrawal, transfer, bill payment) enter pending state with balance unchanged.
 
-**Independent Test**: Log in as a business account user, visit `/banking/dashboard/` — response HTML must contain "Business". Log in as a personal account user — response must contain "Personal".
+**Independent Test**: Log in as manager.acmecorp, submit a deposit of $5,000 (balance updates to $5,000), then submit a withdrawal of $1,000 (balance stays at $5,000, PendingTransaction record created with status PENDING).
 
-### Tests for User Story 2
+### Tests for User Story 2 — Write FIRST, verify FAIL before implementing (Constitution §II)
 
-> **Write these tests FIRST and confirm they FAIL before implementing**
-
-- [x] T010 [P] [US2] Write view tests for GET `/banking/dashboard/`: (a) business account user → response contains "Business"; (b) personal account user → response contains "Personal" in `banking/tests/test_views.py`
+- [X] T024 [P] [US2] Write service tests in banking/tests/test_services.py: `test_deposit_to_business_increases_balance_and_creates_transaction`, `test_deposit_to_business_zero_amount_raises`, `test_deposit_to_business_negative_amount_raises`, `test_create_pending_withdrawal_creates_pending_tx_status_pending`, `test_create_pending_withdrawal_insufficient_funds_raises`, `test_create_pending_transfer_valid_creates_pending_tx`, `test_create_pending_transfer_recipient_not_found_raises`, `test_create_pending_transfer_insufficient_funds_raises`, `test_create_pending_bill_payment_creates_pending_tx_with_description`
+- [X] T025 [P] [US2] Write view tests in banking/tests/test_views.py: `test_dashboard_view_as_account_manager_shows_business_account`, `test_dashboard_view_as_personal_user_unchanged`, `test_deposit_view_as_account_manager_updates_balance`, `test_withdraw_view_as_account_manager_creates_pending_balance_unchanged`, `test_withdraw_view_as_account_manager_insufficient_funds`, `test_transfer_view_as_account_manager_creates_pending`, `test_transfer_view_as_account_manager_recipient_not_found`, `test_pay_bill_view_as_account_manager_creates_pending`
 
 ### Implementation for User Story 2
 
-- [x] T011 [US2] Add account type label (e.g. a badge or text element showing `account.get_account_type_display()`) to `banking/templates/banking/dashboard.html` (depends on T010 failing)
+- [X] T026 [US2] Add `deposit_to_business(business_account, amount)` to banking/services.py wrapped in `@transaction.atomic`: validate amount > 0 (raise ValidationError("Amount must be greater than zero.")); update BusinessAccount.balance; create BusinessTransaction(type='DEPOSIT', amount=amount, balance_after=new_balance)
+- [X] T027 [US2] Add `create_pending_withdrawal(business_account, amount)`, `create_pending_transfer(business_account, amount, recipient_phone)`, `create_pending_bill_payment(business_account, amount, category, reference)` to banking/services.py, each `@transaction.atomic`: validate amount > 0; validate business_account.balance >= amount (raise ValidationError("Insufficient funds.")); for transfer look up Account by phone (raise ValidationError("No account found with that phone number.") if not found); create PendingTransaction with status='PENDING'; bill payment sets description="Category (reference)"
+- [X] T028 [US2] Add `BusinessBillPaymentForm` to banking/forms.py: fields `category` CharField, `reference` CharField, `amount` DecimalField; no saved-biller lookup
+- [X] T029 [US2] Modify `dashboard_view` in banking/views.py: if `hasattr(request.user, 'manager_profile')` — fetch BusinessAccount via manager_profile, fetch last 5 BusinessTransaction records, pass is_manager=True + business_account + balance + recent_transactions + deposit_form + withdraw_form + transfer_form + bill_pay_form(BusinessBillPaymentForm) to template; personal path unchanged
+- [X] T030 [US2] Modify `deposit_view` in banking/views.py: if manager_profile exists, validate DepositForm, call deposit_to_business, redirect to dashboard; personal path unchanged
+- [X] T031 [US2] Modify `withdraw_view` in banking/views.py: if manager_profile exists, validate WithdrawForm, call create_pending_withdrawal (no authoriser-existence check — authoriser always exists in new model), flash "Withdrawal submitted and awaiting authoriser approval.", redirect to dashboard; personal path unchanged
+- [X] T032 [US2] Modify `transfer_view` in banking/views.py: if manager_profile exists, validate TransferForm, call create_pending_transfer, handle ValidationError for recipient-not-found and insufficient-funds, flash success and redirect; personal path unchanged
+- [X] T033 [US2] Modify `pay_bill_view` in banking/views.py: if manager_profile exists, use BusinessBillPaymentForm, call create_pending_bill_payment, redirect to dashboard; personal saved-biller path unchanged
+- [X] T034 [US2] Update banking/templates/banking/dashboard.html: add `{% if is_manager %}` block showing BusinessAccount company name, balance, recent BusinessTransaction history, and inline forms for deposit/withdraw/transfer/bill-pay; `{% else %}` block renders unchanged personal dashboard
 
-**Checkpoint**: Run `pytest banking/tests/test_views.py -k dashboard` — T010 tests pass. Dashboard shows the correct label for both account types.
+**Checkpoint**: All T024/T025 tests pass; manually follow quickstart Flows 2 and 3 — deposit reflects immediately, withdrawal enters pending state with balance unchanged
 
 ---
 
-## Phase 4: User Story 3 — Account Type Toggle at Sign-Up (Priority: P3)
+## Phase 5: User Story 3 — Authoriser Approves or Rejects (Priority: P1)
 
-**Goal**: The sign-up page presents a clear "Personal" / "Business" selector. Selecting "Business" reveals the business fields without a page reload; switching back hides them.
+**Goal**: Authoriser logs in and sees a pending queue link when transactions await action. Approve executes immediately and updates the balance; reject cancels and records as Rejected.
 
-**Independent Test**: Load `/accounts/signup/` in a browser. Confirm "Personal" is selected and business fields are hidden. Select "Business" — company name and registration number fields appear. Switch back — they disappear. No page reload occurs.
+**Independent Test**: After manager submits a withdrawal, log in as authoriser.acmecorp, confirm pending queue link is visible, approve the transaction, verify balance decreases and transaction leaves the queue.
+
+### Tests for User Story 3 — Write FIRST, verify FAIL before implementing (Constitution §II)
+
+- [X] T035 [P] [US3] Write service tests in banking/tests/test_services.py: `test_approve_business_pending_sets_status_approved`, `test_approve_business_pending_updates_business_account_balance`, `test_approve_business_pending_creates_business_transaction`, `test_approve_business_pending_insufficient_funds_leaves_status_pending`, `test_reject_business_pending_sets_status_rejected`, `test_reject_business_pending_creates_rejected_business_transaction`, `test_reject_business_pending_balance_unchanged`
+- [X] T036 [P] [US3] Write view tests in banking/tests/test_views.py: `test_authoriser_queue_view_lists_pending_transactions`, `test_authoriser_queue_view_empty_queue_shows_message`, `test_authoriser_queue_view_non_authoriser_returns_403`, `test_approve_transaction_view_valid_authoriser_redirects`, `test_approve_transaction_view_insufficient_funds_flashes_error`, `test_approve_transaction_view_wrong_authoriser_returns_403`, `test_reject_transaction_view_valid_authoriser_redirects`, `test_reject_transaction_view_wrong_authoriser_returns_403`
+- [X] T037 [P] [US3] Write context processor tests in banking/tests/test_context_processors.py (create file if absent): `test_pending_count_for_authoriser_with_pending_transactions`, `test_pending_count_for_authoriser_with_no_pending_returns_zero`, `test_pending_count_for_non_authoriser_returns_zero`, `test_pending_count_for_anonymous_user_returns_zero`
 
 ### Implementation for User Story 3
 
-- [x] T012 [US3] Update `accounts/templates/accounts/signup.html`: add radio button group for account type (Personal / Business, Personal selected by default); wrap `company_name` and `business_registration_number` fields in a `<div id="business-fields">` hidden by default; add inline `<script>` that toggles `business-fields` visibility on radio button `change` event (depends on T007 — form fields must exist to render)
+- [X] T038 [US3] Add `approve_business_pending(pending_tx, decided_by)` to banking/services.py wrapped in `@transaction.atomic`: verify pending_tx.status == 'PENDING'; check BusinessAccount.balance >= pending_tx.amount (if not, leave status PENDING and raise ValidationError("Insufficient funds.")); update balance; set pending_tx.status='APPROVED', decided_by, decided_at=now(); create BusinessTransaction with correct type and balance_after
+- [X] T039 [US3] Add `reject_business_pending(pending_tx, decided_by)` to banking/services.py wrapped in `@transaction.atomic`: verify pending_tx.status == 'PENDING'; set pending_tx.status='REJECTED', decided_by, decided_at=now(); create BusinessTransaction(type='REJECTED', amount=pending_tx.amount, balance_after=current_balance — balance unchanged on reject)
+- [X] T040 [US3] Modify `authoriser_queue_view` in banking/views.py: if user lacks `authoriser_profile` return HttpResponseForbidden("You are not assigned as an authoriser."); else fetch pending_txns = PendingTransaction.objects.filter(business_account=request.user.authoriser_profile.business_account, status='PENDING'); render authoriser_queue.html with pending_txns
+- [X] T041 [US3] Modify `approve_transaction_view` in banking/views.py: fetch PendingTransaction by id; if pending_tx.business_account.authoriser.user != request.user return 403; call approve_business_pending; on success flash "Transaction approved and executed."; on ValidationError flash error message; redirect to authoriser queue
+- [X] T042 [US3] Modify `reject_transaction_view` in banking/views.py: same authorization check as T041; call reject_business_pending; flash "Transaction rejected."; redirect to authoriser queue
+- [X] T043 [US3] Rewrite `authoriser_pending_count` in banking/context_processors.py: if request.user is authenticated and has `authoriser_profile`, return `{'authoriser_pending_count': PendingTransaction.objects.filter(business_account=request.user.authoriser_profile.business_account, status='PENDING').count()}`; else return `{'authoriser_pending_count': 0}`
+- [X] T044 [US3] Update banking/templates/banking/authoriser_queue.html: list each pending transaction with amount, type, description, submitted time; per-row POST forms for approve and reject with CSRF tokens; empty-queue message when no pending transactions exist
+- [X] T045 [P] [US3] Update navigation in templates/base.html (or equivalent): render "Pending Approvals ({{ authoriser_pending_count }})" link to `/banking/authorise/` when `authoriser_pending_count > 0`; hide entirely when 0
 
-**Checkpoint**: Load sign-up page in browser. Toggle between Personal and Business — business fields appear and disappear correctly. Submit a business account form — fields are present and submitted.
+**Checkpoint**: All T035/T036/T037 tests pass; manually follow quickstart Flows 4 and 5 and all Validation Checks
 
 ---
 
-## Phase 5: Polish & Cross-Cutting Concerns
+## Phase N: Polish & Cross-Cutting Concerns
 
-- [x] T013 Run full test suite and confirm all tests pass: `pytest --cov=accounts --cov=banking --cov-report=term-missing`
-- [x] T014 [P] Run pre-commit hooks across all changed files: `pre-commit run --files accounts/forms.py accounts/views.py banking/models.py banking/templates/banking/dashboard.html accounts/templates/accounts/signup.html`
-- [x] T015 Follow `specs/003-business-account/quickstart.md` — verify business account registration, validation errors, and personal account behaviour end-to-end in the browser
+**Purpose**: End-to-end validation and verification of all quickstart flows against the full test suite.
+
+- [X] T046 [P] Verify banking/templates/banking/transactions.html and banking/templates/banking/billing_history.html are not served to manager users (or show appropriate empty state); update views/templates if they error for manager accounts
+- [X] T047 Run full test suite: `pytest` — all tests pass; no regressions in personal account flows (accounts/tests/, banking/tests/)
+- [X] T048 Manually run all quickstart.md Validation Checks: duplicate UEN, blank required field, negative deposit amount, withdrawal exceeding balance, transfer to non-existent phone, direct visit to `/business/created/` after credentials consumed, non-authoriser visiting `/banking/authorise/`
+- [X] T049 [P] Confirm banking/admin.py exposes BusinessAccount, AccountManagerProfile, BusinessTransaction, Authoriser, PendingTransaction with no import errors at `/admin/`
+
+**Checkpoint**: `pytest` green; all 7 validation checks from quickstart.md behave as documented; no 500 errors on any path in contracts/views.md
 
 ---
 
@@ -101,55 +147,78 @@
 
 ### Phase Dependencies
 
-- **Phase 1 (Foundational)**: No dependencies — start here. BLOCKS all other phases.
-- **Phase 2 (US1)**: Depends on Phase 1 completion.
-- **Phase 3 (US2)**: Depends on Phase 1 completion. Can run in parallel with Phase 2 (different files).
-- **Phase 4 (US3)**: Depends on Phase 2 (T007 — form fields must exist to render in template). Cannot start until T007 is done.
-- **Phase 5 (Polish)**: Depends on all user story phases.
+- **Phase 1** (Setup/Cleanup): No dependencies — start immediately
+- **Phase 2** (Foundational): Depends on Phase 1 — BLOCKS all user story phases
+- **Phase 3** (US1): Depends on Phase 2 (migration applied)
+- **Phase 4** (US2): Depends on Phase 2; practically requires US1 complete (manager users are created by US1's service and needed for test fixtures)
+- **Phase 5** (US3): Depends on Phase 2; requires US1 (authoriser user) and US2 (pending transactions to act on)
+- **Phase N** (Polish): Depends on all story phases complete
 
 ### User Story Dependencies
 
-- **US1 (P1)**: Depends on Phase 1. Independent of US2 and US3.
-- **US2 (P2)**: Depends on Phase 1 (`account_type` field must exist on `Account`). Independent of US1 implementation.
-- **US3 (P3)**: Depends on US1 form fields (T007) being present to render in the template.
+- **US1** (Create Business Account): Independently testable after Phase 2; delivers manager + authoriser users needed by US2/US3 tests
+- **US2** (Manager Submits Transaction): Requires US1 for fixture setup; PendingTransactions created here are acted on in US3
+- **US3** (Authoriser Approves/Rejects): Requires US1 (authoriser user) and US2 (pending transactions)
 
 ### Within Each Phase
 
-- Tests MUST be written and confirmed failing before implementation tasks in the same phase.
-- T002 and T003 can run in parallel (both modify `banking/models.py` sequentially, but can be done in one edit pass).
-- T005 and T006 can run in parallel (both add tests to `accounts/tests/test_views.py`).
-- T010 can start as soon as Phase 1 is complete (no dependency on Phase 2).
+- **Write tests FIRST** — run them and confirm they FAIL before writing implementation (Constitution §II, NON-NEGOTIABLE)
+- Models before services (services import models)
+- Services before views (views call services)
+- Views before templates (templates render view context)
+- Tasks marked [P] within a phase can proceed in parallel
 
 ### Parallel Opportunities
 
+- T002, T003, T004 (Phase 1 deletions) — different files, run in parallel
+- T007, T008, T009 (Phase 2 new models) — different model classes, run in parallel
+- T015, T016 (US1 tests) — run in parallel
+- T021, T022 (US1 templates) — different template files, run in parallel
+- T024, T025 (US2 tests) — run in parallel
+- T035, T036, T037 (US3 tests) — run in parallel
+
+---
+
+## Parallel Example: User Story 1
+
 ```bash
-# Once Phase 1 is complete, these can proceed in parallel:
-Phase 2 (US1): accounts/forms.py, accounts/views.py, accounts/tests/test_views.py
-Phase 3 (US2): banking/templates/banking/dashboard.html, banking/tests/test_views.py
+# Write tests in parallel (coordinate on same test file to avoid conflicts):
+T015: Service tests for create_business_account_mock
+T016: View tests for create_business_account_view and business_account_created_view
+
+# Verify tests FAIL, then implement in sequence:
+T017 (service) → T018 (form) → T019/T020 (views) → T023 (URLs)
+T021, T022 (templates) can run in parallel alongside T017
 ```
 
 ---
 
 ## Implementation Strategy
 
-### MVP First (User Stories 1 + 2)
+### MVP First (Phase 1 + 2 + US1 Only)
 
-1. Complete Phase 1: Foundational (data model + migration)
-2. Complete Phase 2: US1 (business registration form + view)
-3. Complete Phase 3: US2 (dashboard label)
-4. **STOP and VALIDATE**: Business users can register and see their account type — core feature complete.
+1. Complete Phase 1: Remove wrong model code
+2. Complete Phase 2: Apply correct migration
+3. Complete Phase 3: US1 — business account creation + credential display
+4. **STOP and VALIDATE**: Follow quickstart Flow 1; credentials shown once, both users can log in
+5. Demo-ready for creation flow
 
-### Full Delivery
+### Incremental Delivery
 
-5. Complete Phase 4: US3 (JS toggle UX polish)
-6. Complete Phase 5: Polish + quickstart verification
+1. Phase 1 + 2 → Clean foundation, migration applied
+2. Add US1 → Business account creation works end-to-end (quickstart Flow 1)
+3. Add US2 → Manager submits transactions (quickstart Flows 2 + 3)
+4. Add US3 → Authoriser approves/rejects (quickstart Flows 4 + 5)
+5. Polish → All validation checks pass, full test suite green
 
 ---
 
 ## Notes
 
-- [P] tasks = operate on different files, no outstanding task dependencies
-- Each checkpoint is a meaningful, independently testable increment
-- The `account_type` field uses `get_account_type_display()` in templates for human-readable labels
-- Pre-commit hooks (flake8, pylint, bandit) must pass before each commit per Prototype tier compensating controls
-- No new Python dependencies required
+- [P] tasks = different files or independent sections; no cross-task dependencies within the phase
+- [Story] label maps each task to its user story for traceability
+- **Tests MUST be written and confirmed failing before implementation** (Constitution §II)
+- All balance mutations wrapped in `@transaction.atomic`
+- `select_for_update` not required at SQLite3 prototype tier
+- Personal account flows (Account, Transaction, Biller, personal views) must remain unchanged throughout — run personal account tests after each phase to catch regressions
+- Run `python manage.py check` after Phase 1 and after Phase 2 to catch import/model errors early

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load humanize %}
 {% block title %}Transactions{% endblock %}
 {% block page_title %}Transactions{% endblock %}
 {% block content %}
@@ -34,12 +35,12 @@
           <span
             class="amount {% if transaction.transaction_type == 'DEPOSIT' or transaction.transaction_type == 'TRANSFER_IN' %}credit{% else %}debit{% endif %}"
           >
-            ${{ transaction.amount|floatformat:2 }}
+            ${{ transaction.amount|floatformat:2|intcomma }}
           </span>
         </td>
         <td>
           <span class="amount"
-            >${{ transaction.balance_after|floatformat:2 }}</span
+            >${{ transaction.balance_after|floatformat:2|intcomma }}</span
           >
         </td>
         <td>
@@ -57,7 +58,7 @@
     </tbody>
   </table>
   {% else %}
-  <p class="empty-state">No transactions yet.</p>
+  <p class="empty-state">You have no transactions yet.</p>
   {% endif %}
 </div>
 

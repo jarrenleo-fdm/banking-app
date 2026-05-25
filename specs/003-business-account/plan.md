@@ -1,23 +1,27 @@
-# Implementation Plan: Business Account Registration
+# Implementation Plan: Business Account (Revised Model)
 
-**Branch**: `003-business-account` | **Date**: 2026-05-21 | **Spec**: [spec.md](spec.md)
-**Input**: Feature specification from `specs/003-business-account/spec.md`
+**Branch**: `main` | **Date**: 2026-05-25 | **Spec**: [spec.md](spec.md)
+**Input**: Revised feature specification — business account as standalone entity with mock SQL creation
 
 ## Summary
 
-Add a "Business" account type option to the sign-up flow. When a user selects "Business", the registration form expands to collect a company name and a unique business registration number. A new `BusinessProfile` model stores this data, linked to the existing `Account`. The `Account` model gains an `account_type` field (Personal/Business) displayed on the dashboard. All banking operations remain unchanged for business accounts.
+Add a public `/business/create` form (business name, UEN, address only) that runs mock SQL to
+produce a `BusinessAccount` entity plus two auto-credentialed user accounts: an account manager
+(can submit all transaction types against the business account) and an authoriser (approves or
+rejects outgoing transactions before they execute). The business account is not a login account.
+Existing personal account infrastructure is unchanged.
 
 ## Technical Context
 
-**Language/Version**: Python 3.14 / Django 5.2 (LTS)
-**Primary Dependencies**: Django 5.2, django-environ, Argon2 password hasher
-**Storage**: SQLite3 (Prototype/Learning tier — `@transaction.atomic` without `select_for_update()`)
-**Testing**: pytest + pytest-django + factory-boy; coverage enforced via pytest-cov
-**Target Platform**: Local development server; Linux server (production)
-**Project Type**: Django web application (server-rendered HTML forms)
-**Performance Goals**: Standard web application — page loads under 2 seconds on the development server
-**Constraints**: No JavaScript build pipeline; inline or single static JS file only; no new Python dependencies
-**Scale/Scope**: Single-user development / prototype; no concurrent user concerns at this tier
+**Language/Version**: Python 3.14.5
+**Primary Dependencies**: Django 5.x, django-environ, argon2-cffi, pytest-django
+**Storage**: SQLite3 (prototype tier)
+**Testing**: pytest + pytest-django — Red-Green-Refactor per Constitution §II
+**Target Platform**: Local dev server (prototype)
+**Project Type**: Django web application (server-rendered)
+**Performance Goals**: Demo only — no throughput targets
+**Constraints**: SQLite3 `@transaction.atomic` suffices (no `select_for_update` required at prototype tier)
+**Scale/Scope**: Single developer, demo audience
 
 ## Constitution Check
 
@@ -25,18 +29,14 @@ Add a "Business" account type option to the sign-up flow. When a user selects "B
 
 | Principle | Status | Notes |
 |---|---|---|
-| I. Security First | ✅ Pass | `business_registration_number` uniqueness enforced at DB level (unique constraint) and form level. No PII leaks in error messages. Django CSRF, auto-escaping, and existing middleware remain. |
-| II. Test-First | ✅ Pass | Tests written before implementation per plan (see Implementation Order below). |
-| III. SonarQube | ⚠ Prototype deviation | SonarQube not required; flake8 + pylint + bandit via pre-commit are compensating controls. |
-| IV. Auditability | ✅ Pass | Account creation (including business profile) is already logged via the existing `Account` signal. Business profile fields are stored immutably on the model. |
-| V. Data Integrity | ✅ Pass | `BusinessProfile` creation is wrapped in the signup view's implicit request transaction; `Account.account_type` update uses `save(update_fields=["account_type"])`. No money-moving code is modified. |
+| I. Security (NON-NEGOTIABLE) | PASS | CSRF on all POSTs; `@login_required` on all protected views; `/business/create` is intentionally public |
+| II. Test-First (NON-NEGOTIABLE) | REQUIRED | All service functions and views must follow Red-Green-Refactor |
+| III. SonarQube | DEFERRED | Prototype tier — compensated by flake8/pylint/bandit locally (Complexity Tracking §1) |
+| IV. Auditability | PASS | `BusinessTransaction` records every executed/rejected transaction immutably |
+| V. Data Integrity | PASS | All balance mutations in `@transaction.atomic`; `select_for_update` not required at SQLite tier (Complexity Tracking §2) |
 
-**Complexity Tracking** (Prototype tier deviations):
-
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|---|---|---|
-| No SonarQube CI | Prototype/Learning tier — operational infrastructure intentionally minimal | Pre-commit flake8/pylint/bandit are the compensating controls already in place |
-| SQLite3 without `select_for_update()` | Prototype/Learning tier | `@transaction.atomic` with SQLite3 issues exclusive write lock; sufficient for single-user prototype |
+**Production Migration TODO**: Before involving real users or real money — migrate to PostgreSQL,
+enable `select_for_update()`, integrate SonarQube CI, add full OWASP review.
 
 ## Project Structure
 
@@ -45,56 +45,119 @@ Add a "Business" account type option to the sign-up flow. When a user selects "B
 ```text
 specs/003-business-account/
 ├── plan.md              # This file
-├── research.md          # Phase 0 — findings and decisions
-├── data-model.md        # Phase 1 — entity and validation details
-├── quickstart.md        # Phase 1 — how to verify the feature locally
+├── research.md          # Phase 0 output
+├── data-model.md        # Phase 1 output
+├── quickstart.md        # Phase 1 output
 ├── contracts/
-│   └── views.md         # Phase 1 — HTTP view/form contract changes
-└── tasks.md             # Phase 2 — generated by /speckit-tasks
+│   └── views.md         # Phase 1 output
+└── tasks.md             # Phase 2 output (/speckit-tasks — not yet generated)
 ```
 
-### Source Code (affected files)
+### Source Code Layout
 
 ```text
 banking/
-├── models.py            # MODIFIED — add account_type to Account; add BusinessProfile model
+├── models.py
+├── services.py
+├── views.py
+├── forms.py
+├── urls.py
+├── admin.py
+├── context_processors.py
 ├── migrations/
-│   └── 0002_account_type_business_profile.py  # NEW — additive migration
-├── forms.py             # MODIFIED — expand RegistrationForm with account_type + business fields
-├── tests/
-│   └── test_models.py   # MODIFIED — add BusinessProfile tests
-
-accounts/
-├── forms.py             # MODIFIED — add account_type selector + business fields + conditional validation
-├── views.py             # MODIFIED — signup_view creates BusinessProfile for business accounts
-├── tests/
-│   └── test_views.py    # MODIFIED — add signup tests for business account flow
-└── templates/accounts/
-    └── signup.html      # MODIFIED — add account type toggle + business fields + inline JS
-
-banking/
+│   └── 0009_business_account_revised_model.py
 └── templates/banking/
-    └── dashboard.html   # MODIFIED — show account type label (Personal / Business)
+    ├── create_business_account.html   ← NEW
+    ├── business_account_created.html  ← NEW (credential confirmation screen)
+    ├── dashboard.html                 ← MODIFIED
+    ├── pending_transactions.html      ← MODIFIED
+    ├── authoriser_queue.html          ← MODIFIED
+    └── manage_authorisers.html        ← DELETE
 ```
 
-## Implementation Order
+## Complexity Tracking
 
-Tasks must follow Red-Green-Refactor (Principle II). For each cluster, write failing tests first, then implement.
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|-----------|------------|--------------------------------------|
+| SonarQube not in CI (Principle III) | Prototype tier — no CI infra | Adds overhead disproportionate to demo scope; flake8/pylint/bandit compensate locally |
+| `select_for_update` not used (Principle V) | SQLite3 backend | SQLite3 issues an exclusive write lock under `@transaction.atomic`; row-level locking not applicable |
 
-### Cluster A — Data Model (banking app)
+## Cleanup Enumeration
 
-1. `banking/models.py` — add `account_type` to `Account` (choices: PERSONAL/BUSINESS, default PERSONAL)
-2. `banking/models.py` — add `BusinessProfile` model (OneToOne → Account, company_name, business_registration_number unique)
-3. `banking/migrations/0002_...` — generate migration
-4. Tests: `banking/tests/test_models.py` — test `account_type` default, `BusinessProfile` creation, uniqueness constraint on `business_registration_number`
+### DELETE — code from the wrong model
 
-### Cluster B — Registration Form (accounts app)
+| Item | Location |
+|------|----------|
+| `BusinessProfile` model | `banking/models.py` |
+| `account_type` field + choices on `Account` | `banking/models.py` |
+| `manage_authorisers_view` | `banking/views.py` |
+| `add_authoriser_view` | `banking/views.py` |
+| `remove_authoriser_view` | `banking/views.py` |
+| `dismiss_no_authoriser_warning_view` | `banking/views.py` |
+| No-authoriser banner logic in `dashboard_view` | `banking/views.py` |
+| Business-branch logic in `withdraw_view`, `transfer_view`, `pay_bill_view` | `banking/views.py` |
+| `pending_transactions_view` (replaced by manager dashboard) | `banking/views.py` |
+| `AddAuthoriserForm` | `banking/forms.py` |
+| `manage_authorisers/` URL + `add/` + `<id>/remove/` | `banking/urls.py` |
+| `pending/` URL | `banking/urls.py` |
+| `dashboard/dismiss-no-authoriser-warning/` URL | `banking/urls.py` |
+| `manage_authorisers.html` template | `banking/templates/banking/` |
 
-1. Tests: `accounts/tests/test_views.py` — test POST signup with business account (valid + missing fields + duplicate registration number)
-2. `accounts/forms.py` — add `account_type`, `company_name`, `business_registration_number` fields; conditional validation in `clean()`
-3. `accounts/views.py` — after user save, if business: update `account.account_type` and create `BusinessProfile`
+### MODIFY — adapt to new model
 
-### Cluster C — Templates
+| Item | Change |
+|------|--------|
+| `Authoriser` model | Change `business_account` FK target: `Account` → `BusinessAccount`; promote from `ForeignKey` to `OneToOneField`; remove `assigned_by` field |
+| `PendingTransaction` | Rename field `account` → `business_account`; change FK target: `Account` → `BusinessAccount`; drop `biller` FK (business bill payments don't use saved billers) |
+| `dashboard_view` | Branch on `AccountManagerProfile` presence — render business dashboard or personal dashboard |
+| `deposit_view` | Account manager path calls `deposit_to_business`; personal path unchanged |
+| `withdraw_view` | Account manager path creates `PendingTransaction` for `BusinessAccount`; no authoriser-existence check (authoriser always exists); personal path unchanged |
+| `transfer_view` | Same pattern as `withdraw_view` |
+| `pay_bill_view` | Account manager path: bill payment form uses no saved billers (category + reference + amount); creates `PendingTransaction` for `BusinessAccount` |
+| `authoriser_queue_view` | Use `request.user.authoriser_profile.business_account` (1:1) instead of queryset |
+| `approve_transaction_view` | Verify `pending_tx.business_account.authoriser.user == request.user` |
+| `reject_transaction_view` | Same verification pattern |
+| `context_processors.authoriser_pending_count` | Rewrite: use `request.user.authoriser_profile.business_account.pending_transactions` |
+| `billing_view` / `pay_bill_view` | Skip biller-save flow for account managers; bill payment form accepts category + reference + amount inline |
 
-1. `accounts/templates/accounts/signup.html` — add account type radio/toggle, business fields section, inline JS toggle
-2. `banking/templates/banking/dashboard.html` — add account type badge (Personal / Business)
+### ADD — new model
+
+| Item | Location |
+|------|----------|
+| `BusinessAccount` model | `banking/models.py` |
+| `AccountManagerProfile` model | `banking/models.py` |
+| `BusinessTransaction` model | `banking/models.py` |
+| `create_business_account_mock(company_name, uen, street, city, postal_code)` | `banking/services.py` |
+| `deposit_to_business(biz, amount)` | `banking/services.py` |
+| `approve_business_pending(pending_tx, decided_by)` | `banking/services.py` |
+| `reject_business_pending(pending_tx, decided_by)` | `banking/services.py` |
+| `BusinessAccountCreationForm` | `banking/forms.py` |
+| `create_business_account_view` (GET + POST, public) | `banking/views.py` |
+| `manager_dashboard_view` (or branched inside `dashboard_view`) | `banking/views.py` |
+| `create_business_account.html` | `banking/templates/banking/` |
+| `business_account_created.html` | `banking/templates/banking/` |
+| `/business/create/` URL (no `@login_required`) | `banking/urls.py` |
+| Migration 0009 | `banking/migrations/` |
+
+## Key Design Decisions
+
+### Business transaction recording
+A separate `BusinessTransaction` model (parallel to personal `Transaction`) records all executed
+and rejected transactions for a `BusinessAccount`. This avoids making `Transaction.account` nullable
+and keeps the personal account transaction history clean.
+
+### Bill payments for business accounts
+Business account bill payments do not use the saved-biller (`Biller`) model. The account manager's
+bill payment form accepts biller category, reference, and amount inline each time. This avoids
+extending `Biller` with a nullable `business_account` FK.
+
+### Phone number generation for demo accounts
+Manager and authoriser users need valid Singapore mobile numbers (`^[89]\d{7}$`).
+Strategy: sequential counter in the `8xxxxxxx` range. Managers receive the next odd slot
+(80000001, 80000003, …); authorisers receive the next even slot (80000002, 80000004, …).
+The service queries existing phone numbers before each assignment to guarantee uniqueness.
+
+### Username uniqueness
+Generated usernames follow `manager.<slug>` / `authoriser.<slug>` where `<slug>` is the
+business name lowercased and stripped of non-alphanumeric characters (max 20 chars).
+A numeric suffix is appended if the base username already exists.

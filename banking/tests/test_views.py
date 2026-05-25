@@ -328,36 +328,6 @@ def test_transfer_without_description_shows_no_description_label(client):
     assert b"Description:" not in response.content
 
 
-# --- Dashboard account type label tests (T010) ---
-
-def test_dashboard_shows_business_label_for_business_account(client):
-    from banking.models import Account, BusinessProfile
-
-    user = create_user("Corp", "81234567")
-    user.account.account_type = Account.BUSINESS
-    user.account.save(update_fields=["account_type"])
-    BusinessProfile.objects.create(
-        account=user.account,
-        company_name="Corp Pte Ltd",
-        business_registration_number="ABC12345",
-    )
-    login(client, user)
-
-    response = client.get(reverse("banking:dashboard"))
-
-    assert response.status_code == 200
-    assert b"Business" in response.content
-
-
-def test_dashboard_shows_personal_label_for_personal_account(client):
-    user = create_user("Alice", "81234567")
-    login(client, user)
-
-    response = client.get(reverse("banking:dashboard"))
-
-    assert response.status_code == 200
-    assert b"Personal" in response.content
-
 
 # --- US1: Pay a Bill view tests ---
 
@@ -502,7 +472,9 @@ def test_add_biller_rejects_blank_reference(client):
 
 def test_add_biller_rejects_duplicate_reference_same_category(client):
     user = create_user("Alice", "81234567")
-    Biller.objects.create(account=user.account, name=Biller.ELECTRICITY, reference="ACC-001")
+    Biller.objects.create(
+        account=user.account, name=Biller.ELECTRICITY, reference="ACC-001"
+    )
     login(client, user)
 
     response = client.post(
@@ -590,3 +562,307 @@ def test_billing_history_excludes_other_users_payments(client):
     response = client.get(reverse("banking:billing_history"))
 
     assert list(response.context["payments"]) == []
+
+
+
+# --- US1: Business account creation view tests ---
+
+def test_create_business_account_view_get_renders_form(client):
+    from django.urls import reverse
+    response = client.get(reverse("banking:create_business_account"))
+    assert response.status_code == 200
+    assert b"company_name" in response.content
+
+
+def test_create_business_account_view_post_valid_redirects_to_created(client):
+    from django.urls import reverse
+    response = client.post(reverse("banking:create_business_account"), {
+        "company_name": "Acme Corp",
+        "uen": "202512345A",
+        "street": "1 Marina Boulevard",
+        "city": "Singapore",
+        "postal_code": "018989",
+    })
+    assert response.status_code == 302
+    assert "/business/created/" in response.url
+
+
+def test_create_business_account_view_post_blank_field_returns_error(client):
+    from django.urls import reverse
+    response = client.post(reverse("banking:create_business_account"), {
+        "company_name": "",
+        "uen": "202512345A",
+        "street": "1 Marina Boulevard",
+        "city": "Singapore",
+        "postal_code": "018989",
+    })
+    assert response.status_code == 200
+    assert b"errorlist" in response.content
+
+
+def test_create_business_account_view_post_duplicate_uen_returns_error(client):
+    from django.urls import reverse
+    from banking.services import create_business_account_mock
+    create_business_account_mock("Acme Corp", "202512345A", "1 Marina Blvd", "Singapore", "018989")
+    response = client.post(reverse("banking:create_business_account"), {
+        "company_name": "Beta Corp",
+        "uen": "202512345A",
+        "street": "2 Marina Boulevard",
+        "city": "Singapore",
+        "postal_code": "018989",
+    })
+    assert response.status_code == 200
+    assert b"already exists" in response.content
+
+
+def test_business_account_created_view_with_credentials_in_session(client):
+    from django.urls import reverse
+    from banking.models import BusinessAccount
+    from banking.services import create_business_account_mock
+    creds = create_business_account_mock("Acme Corp", "202512345A", "1 Marina Blvd", "Singapore", "018989")
+    ba = BusinessAccount.objects.get(uen="202512345A")
+    session = client.session
+    session["business_created_credentials"] = creds
+    session.save()
+    response = client.get(reverse("banking:business_account_created") + f"?id={ba.pk}")
+    assert response.status_code == 200
+    assert creds["manager_username"].encode() in response.content
+
+
+def test_business_account_created_view_no_session_redirects_to_create(client):
+    from django.urls import reverse
+    response = client.get(reverse("banking:business_account_created"))
+    assert response.status_code == 302
+    assert "/business/create/" in response.url
+
+
+def test_business_account_created_view_clears_session_after_display(client):
+    from django.urls import reverse
+    from banking.models import BusinessAccount
+    from banking.services import create_business_account_mock
+    creds = create_business_account_mock("Acme Corp", "202512345A", "1 Marina Blvd", "Singapore", "018989")
+    ba = BusinessAccount.objects.get(uen="202512345A")
+    session = client.session
+    session["business_created_credentials"] = creds
+    session.save()
+    client.get(reverse("banking:business_account_created") + f"?id={ba.pk}")
+    assert "business_created_credentials" not in client.session
+
+
+# --- US2: Manager transaction view tests ---
+
+def make_business_setup():
+    """Create a BusinessAccount with manager and authoriser users."""
+    from django.contrib.auth import get_user_model
+    from banking.models import BusinessAccount, AccountManagerProfile, Authoriser
+    User = get_user_model()
+    ba = BusinessAccount.objects.create(
+        company_name="Acme Corp", uen="UEN001",
+        street="1 St", city="Singapore", postal_code="000001",
+    )
+    mgr = User.objects.create_user(
+        username="manager.acme", email="mgr@acme.com", name="Manager",
+        phone_number="80000001", password="Demo@abc123",
+    )
+    auth_user = User.objects.create_user(
+        username="authoriser.acme", email="auth@acme.com", name="Authoriser",
+        phone_number="80000002", password="Demo@abc123",
+    )
+    AccountManagerProfile.objects.create(user=mgr, business_account=ba)
+    Authoriser.objects.create(user=auth_user, business_account=ba)
+    return ba, mgr, auth_user
+
+
+def test_dashboard_view_as_account_manager_shows_business_account(client):
+    ba, mgr, _ = make_business_setup()
+    client.force_login(mgr)
+    response = client.get(reverse("banking:dashboard"))
+    assert response.status_code == 200
+    assert response.context["is_manager"] is True
+    assert response.context["business_account"] == ba
+
+
+def test_dashboard_view_as_personal_user_unchanged(client):
+    user = create_user("PersonalUser", "91234567")
+    client.force_login(user)
+    response = client.get(reverse("banking:dashboard"))
+    assert response.status_code == 200
+    assert not response.context.get("is_manager")
+
+
+def test_deposit_view_as_account_manager_updates_balance(client):
+    from banking.models import BusinessTransaction
+    ba, mgr, _ = make_business_setup()
+    client.force_login(mgr)
+    response = client.post(reverse("banking:deposit"), {"amount": "5000.00"})
+    ba.refresh_from_db()
+    assert response.status_code == 302
+    assert ba.balance == Decimal("5000.00")
+    assert BusinessTransaction.objects.filter(business_account=ba, transaction_type=BusinessTransaction.DEPOSIT).exists()
+
+
+def test_withdraw_view_as_account_manager_creates_pending_balance_unchanged(client):
+    from banking.models import BusinessTransaction, PendingTransaction
+    from banking.services import deposit_to_business
+    ba, mgr, _ = make_business_setup()
+    ba.refresh_from_db()
+    deposit_to_business(ba, Decimal("5000.00"))
+    ba.refresh_from_db()
+    client.force_login(mgr)
+    response = client.post(reverse("banking:withdraw"), {"amount": "1000.00"})
+    ba.refresh_from_db()
+    assert response.status_code == 302
+    assert ba.balance == Decimal("5000.00")
+    assert PendingTransaction.objects.filter(business_account=ba, status=PendingTransaction.PENDING).exists()
+
+
+def test_withdraw_view_as_account_manager_insufficient_funds(client):
+    from banking.models import PendingTransaction
+    ba, mgr, _ = make_business_setup()
+    client.force_login(mgr)
+    response = client.post(reverse("banking:withdraw"), {"amount": "1000.00"})
+    ba.refresh_from_db()
+    assert response.status_code == 200
+    assert b"Insufficient funds" in response.content
+    assert ba.balance == Decimal("0.00")
+    assert not PendingTransaction.objects.filter(business_account=ba).exists()
+
+
+def test_transfer_view_as_account_manager_creates_pending(client):
+    from banking.models import PendingTransaction
+    from banking.services import deposit_to_business
+    ba, mgr, _ = make_business_setup()
+    ba.refresh_from_db()
+    deposit_to_business(ba, Decimal("5000.00"))
+    ba.refresh_from_db()
+    recipient = create_user("Recipient", "91234567")
+    client.force_login(mgr)
+    response = client.post(reverse("banking:transfer"), {"recipient_phone": "91234567", "amount": "500.00"})
+    assert response.status_code == 302
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("5000.00")
+    assert PendingTransaction.objects.filter(business_account=ba, transaction_type=PendingTransaction.TRANSFER_OUT).exists()
+
+
+def test_transfer_view_as_account_manager_recipient_not_found(client):
+    from banking.services import deposit_to_business
+    ba, mgr, _ = make_business_setup()
+    ba.refresh_from_db()
+    deposit_to_business(ba, Decimal("5000.00"))
+    ba.refresh_from_db()
+    client.force_login(mgr)
+    response = client.post(reverse("banking:transfer"), {"recipient_phone": "99999999", "amount": "500.00"})
+    assert response.status_code == 200
+    assert b"No account found with that phone number" in response.content
+
+
+def test_pay_bill_view_as_account_manager_creates_pending(client):
+    from banking.models import PendingTransaction
+    from banking.services import deposit_to_business
+    ba, mgr, _ = make_business_setup()
+    ba.refresh_from_db()
+    deposit_to_business(ba, Decimal("5000.00"))
+    ba.refresh_from_db()
+    client.force_login(mgr)
+    response = client.post(reverse("banking:pay_bill"), {
+        "category": "utilities", "reference": "ACC-001", "amount": "200.00"
+    })
+    assert response.status_code == 302
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("5000.00")
+    assert PendingTransaction.objects.filter(business_account=ba, transaction_type=PendingTransaction.BILL_PAYMENT).exists()
+
+
+# --- US3: Authoriser queue view tests ---
+
+def make_biz_with_pending(withdrawal_amount=Decimal("1000.00")):
+    from banking.models import PendingTransaction
+    from banking.services import deposit_to_business
+    ba, mgr, auth_user = make_business_setup()
+    ba.refresh_from_db()
+    deposit_to_business(ba, Decimal("5000.00"))
+    ba.refresh_from_db()
+    pt = PendingTransaction.objects.create(
+        business_account=ba,
+        transaction_type=PendingTransaction.WITHDRAWAL,
+        amount=withdrawal_amount,
+    )
+    return ba, mgr, auth_user, pt
+
+
+def test_authoriser_queue_view_lists_pending_transactions(client):
+    ba, _, auth_user, pt = make_biz_with_pending()
+    client.force_login(auth_user)
+    response = client.get(reverse("banking:authoriser_queue"))
+    assert response.status_code == 200
+    assert pt in response.context["pending_txns"]
+
+
+def test_authoriser_queue_view_empty_queue_shows_message(client):
+    ba, _, auth_user = make_business_setup()
+    client.force_login(auth_user)
+    response = client.get(reverse("banking:authoriser_queue"))
+    assert response.status_code == 200
+    assert len(response.context["pending_txns"]) == 0
+
+
+def test_authoriser_queue_view_non_authoriser_returns_403(client):
+    user = create_user("NotAuth", "91234567")
+    client.force_login(user)
+    response = client.get(reverse("banking:authoriser_queue"))
+    assert response.status_code == 403
+
+
+def test_approve_transaction_view_valid_authoriser_redirects(client):
+    from banking.models import PendingTransaction
+    ba, _, auth_user, pt = make_biz_with_pending()
+    client.force_login(auth_user)
+    response = client.post(reverse("banking:approve_transaction", args=[pt.pk]))
+    assert response.status_code == 302
+    pt.refresh_from_db()
+    assert pt.status == PendingTransaction.APPROVED
+
+
+def test_approve_transaction_view_insufficient_funds_flashes_error(client):
+    from banking.models import BusinessAccount, AccountManagerProfile, Authoriser, PendingTransaction
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    ba = BusinessAccount.objects.create(company_name="BreakCo", uen="BREAK001", street="1 St", city="SG", postal_code="000001")
+    mgr = User.objects.create_user(username="mgr_break", email="mgr_break@test.com", name="Mgr", phone_number="80000003", password="Demo@123")
+    auth_user = User.objects.create_user(username="auth_break", email="auth_break@test.com", name="Auth", phone_number="80000004", password="Demo@123")
+    AccountManagerProfile.objects.create(user=mgr, business_account=ba)
+    Authoriser.objects.create(user=auth_user, business_account=ba)
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("9999.00")
+    )
+    client.force_login(auth_user)
+    response = client.post(reverse("banking:approve_transaction", args=[pt.pk]))
+    assert response.status_code == 302
+    pt.refresh_from_db()
+    assert pt.status == PendingTransaction.PENDING
+
+
+def test_approve_transaction_view_wrong_authoriser_returns_403(client):
+    ba, _, auth_user, pt = make_biz_with_pending()
+    wrong_user = create_user("WrongAuth", "91234567")
+    client.force_login(wrong_user)
+    response = client.post(reverse("banking:approve_transaction", args=[pt.pk]))
+    assert response.status_code == 403
+
+
+def test_reject_transaction_view_valid_authoriser_redirects(client):
+    from banking.models import PendingTransaction
+    ba, _, auth_user, pt = make_biz_with_pending()
+    client.force_login(auth_user)
+    response = client.post(reverse("banking:reject_transaction", args=[pt.pk]))
+    assert response.status_code == 302
+    pt.refresh_from_db()
+    assert pt.status == PendingTransaction.REJECTED
+
+
+def test_reject_transaction_view_wrong_authoriser_returns_403(client):
+    ba, _, auth_user, pt = make_biz_with_pending()
+    wrong_user = create_user("WrongAuth2", "91234567")
+    client.force_login(wrong_user)
+    response = client.post(reverse("banking:reject_transaction", args=[pt.pk]))
+    assert response.status_code == 403

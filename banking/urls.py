@@ -21,5 +21,20 @@ urlpatterns = [
         views.remove_biller_view,
         name="remove_biller",
     ),
-    path("banking/billing/history/", views.billing_history_view, name="billing_history"),
+    path(
+        "banking/billing/history/", views.billing_history_view, name="billing_history"
+    ),
+    path("banking/authorise/", views.authoriser_queue_view, name="authoriser_queue"),
+    path(
+        "banking/authorise/<int:pending_tx_id>/approve/",
+        views.approve_transaction_view,
+        name="approve_transaction",
+    ),
+    path(
+        "banking/authorise/<int:pending_tx_id>/reject/",
+        views.reject_transaction_view,
+        name="reject_transaction",
+    ),
+    path("business/create/", views.create_business_account_view, name="create_business_account"),
+    path("business/created/", views.business_account_created_view, name="business_account_created"),
 ]

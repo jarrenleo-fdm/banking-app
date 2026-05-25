@@ -4,8 +4,7 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 
-from banking.models import Transaction
-from banking.models import Biller
+from banking.models import Biller, Transaction
 from banking.services import (
     InsufficientFundsError,
     InvalidAmountError,
@@ -219,7 +218,9 @@ def test_pay_bill_raises_insufficient_funds_and_leaves_balance_unchanged():
 
     user.account.refresh_from_db()
     assert user.account.balance == Decimal("30.00")
-    assert Transaction.objects.filter(transaction_type=Transaction.BILL_PAYMENT).count() == 0
+    assert Transaction.objects.filter(
+        transaction_type=Transaction.BILL_PAYMENT
+    ).count() == 0
 
 
 @pytest.mark.parametrize("amount", [Decimal("0.00"), Decimal("-1.00")])
@@ -233,4 +234,270 @@ def test_pay_bill_raises_invalid_amount_for_non_positive_values(amount):
 
     user.account.refresh_from_db()
     assert user.account.balance == Decimal("100.00")
-    assert Transaction.objects.filter(transaction_type=Transaction.BILL_PAYMENT).count() == 0
+    assert Transaction.objects.filter(
+        transaction_type=Transaction.BILL_PAYMENT
+    ).count() == 0
+
+
+# --- US1: create_business_account_mock service tests ---
+
+def test_create_business_account_mock_creates_business_account():
+    from banking.services import create_business_account_mock
+    from banking.models import BusinessAccount
+    create_business_account_mock("Acme Corp", "202512345A", "1 Marina Blvd", "Singapore", "018989")
+    assert BusinessAccount.objects.filter(uen="202512345A").exists()
+
+
+def test_create_business_account_mock_creates_manager_and_authoriser_users():
+    from banking.services import create_business_account_mock
+    from banking.models import AccountManagerProfile, Authoriser
+    result = create_business_account_mock("Acme Corp", "202512345A", "1 Marina Blvd", "Singapore", "018989")
+    assert AccountManagerProfile.objects.filter(user__username=result["manager_username"]).exists()
+    assert Authoriser.objects.filter(user__username=result["authoriser_username"]).exists()
+
+
+def test_create_business_account_mock_generates_sequential_phone_numbers():
+    from banking.services import create_business_account_mock
+    r1 = create_business_account_mock("Corp One", "UEN001", "1 St", "Singapore", "000001")
+    r2 = create_business_account_mock("Corp Two", "UEN002", "2 St", "Singapore", "000002")
+    assert r1["manager_phone"].startswith("8") or r1["manager_phone"].startswith("9")
+    assert int(r1["manager_phone"]) % 2 == 1
+    assert int(r1["authoriser_phone"]) % 2 == 0
+    assert r1["manager_phone"] != r2["manager_phone"]
+    assert r1["authoriser_phone"] != r2["authoriser_phone"]
+
+
+def test_create_business_account_mock_returns_credentials_dict():
+    from banking.services import create_business_account_mock
+    result = create_business_account_mock("Acme Corp", "202512345A", "1 Marina Blvd", "Singapore", "018989")
+    assert "manager_username" in result
+    assert "manager_password" in result
+    assert "manager_phone" in result
+    assert "authoriser_username" in result
+    assert "authoriser_password" in result
+    assert "authoriser_phone" in result
+    assert result["manager_password"].startswith("Demo@")
+    assert result["authoriser_password"].startswith("Demo@")
+
+
+def test_create_business_account_mock_duplicate_uen_raises():
+    from banking.services import create_business_account_mock
+    from django.db import IntegrityError
+    create_business_account_mock("Acme Corp", "DUPE001", "1 St", "Singapore", "000001")
+    with pytest.raises(IntegrityError):
+        create_business_account_mock("Beta Corp", "DUPE001", "2 St", "Singapore", "000002")
+
+
+def test_create_business_account_mock_collision_increments_username_suffix():
+    from banking.services import create_business_account_mock
+    r1 = create_business_account_mock("Acme", "UEN_COL1", "1 St", "Singapore", "000001")
+    r2 = create_business_account_mock("Acme", "UEN_COL2", "1 St", "Singapore", "000002")
+    assert r1["manager_username"] != r2["manager_username"]
+    assert r1["authoriser_username"] != r2["authoriser_username"]
+
+
+# --- US2: Manager transaction service tests ---
+
+def make_business(company="Acme Corp", uen="UEN_TEST"):
+    from banking.models import BusinessAccount, AccountManagerProfile, Authoriser
+    User = get_user_model()
+    ba = BusinessAccount.objects.create(
+        company_name=company, uen=uen, street="1 St", city="Singapore", postal_code="000001"
+    )
+    mgr = User.objects.create_user(username=f"mgr_{uen}", email=f"mgr_{uen}@test.com",
+                                    name="Manager", phone_number="80000001", password="Demo@abc123")
+    auth = User.objects.create_user(username=f"auth_{uen}", email=f"auth_{uen}@test.com",
+                                     name="Authoriser", phone_number="80000002", password="Demo@abc123")
+    AccountManagerProfile.objects.create(user=mgr, business_account=ba)
+    Authoriser.objects.create(user=auth, business_account=ba)
+    return ba, mgr, auth
+
+
+def test_deposit_to_business_increases_balance_and_creates_transaction():
+    from banking.services import deposit_to_business
+    from banking.models import BusinessTransaction
+    ba, _, _ = make_business()
+    txn = deposit_to_business(ba, Decimal("1000.00"))
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("1000.00")
+    assert txn.transaction_type == BusinessTransaction.DEPOSIT
+    assert txn.amount == Decimal("1000.00")
+    assert txn.balance_after == Decimal("1000.00")
+
+
+def test_deposit_to_business_zero_amount_raises():
+    from banking.services import deposit_to_business
+    ba, _, _ = make_business()
+    with pytest.raises(InvalidAmountError):
+        deposit_to_business(ba, Decimal("0.00"))
+
+
+def test_deposit_to_business_negative_amount_raises():
+    from banking.services import deposit_to_business
+    ba, _, _ = make_business()
+    with pytest.raises(InvalidAmountError):
+        deposit_to_business(ba, Decimal("-50.00"))
+
+
+def test_create_pending_withdrawal_creates_pending_tx_status_pending():
+    from banking.services import deposit_to_business, create_pending_withdrawal
+    from banking.models import PendingTransaction
+    ba, _, _ = make_business()
+    deposit_to_business(ba, Decimal("500.00"))
+    ba.refresh_from_db()
+    pt = create_pending_withdrawal(ba, Decimal("100.00"))
+    assert pt.status == PendingTransaction.PENDING
+    assert pt.transaction_type == PendingTransaction.WITHDRAWAL
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("500.00")
+
+
+def test_create_pending_withdrawal_insufficient_funds_raises():
+    from banking.services import create_pending_withdrawal
+    ba, _, _ = make_business()
+    with pytest.raises(InsufficientFundsError):
+        create_pending_withdrawal(ba, Decimal("100.00"))
+
+
+def test_create_pending_transfer_valid_creates_pending_tx():
+    from banking.services import deposit_to_business, create_pending_transfer
+    from banking.models import PendingTransaction
+    ba, _, _ = make_business()
+    deposit_to_business(ba, Decimal("500.00"))
+    ba.refresh_from_db()
+    recipient = create_user("Recipient", "91234567")
+    pt = create_pending_transfer(ba, Decimal("200.00"), "91234567")
+    assert pt.status == PendingTransaction.PENDING
+    assert pt.transaction_type == PendingTransaction.TRANSFER_OUT
+    assert pt.counterparty == recipient.account
+
+
+def test_create_pending_transfer_recipient_not_found_raises():
+    from banking.services import deposit_to_business, create_pending_transfer
+    ba, _, _ = make_business()
+    deposit_to_business(ba, Decimal("500.00"))
+    ba.refresh_from_db()
+    with pytest.raises(RecipientNotFoundError):
+        create_pending_transfer(ba, Decimal("100.00"), "99999999")
+
+
+def test_create_pending_transfer_insufficient_funds_raises():
+    from banking.services import create_pending_transfer
+    ba, _, _ = make_business()
+    create_user("Recipient2", "91234567")
+    with pytest.raises(InsufficientFundsError):
+        create_pending_transfer(ba, Decimal("100.00"), "91234567")
+
+
+def test_create_pending_bill_payment_creates_pending_tx_with_description():
+    from banking.services import deposit_to_business, create_pending_bill_payment
+    from banking.models import PendingTransaction
+    ba, _, _ = make_business()
+    deposit_to_business(ba, Decimal("500.00"))
+    ba.refresh_from_db()
+    pt = create_pending_bill_payment(ba, Decimal("50.00"), "utilities", "ACC-001")
+    assert pt.status == PendingTransaction.PENDING
+    assert pt.transaction_type == PendingTransaction.BILL_PAYMENT
+    assert "utilities" in pt.description
+    assert "ACC-001" in pt.description
+
+
+# --- US3: Authoriser approve/reject service tests ---
+
+def make_business_with_balance(balance=Decimal("5000.00")):
+    from banking.services import deposit_to_business
+    ba, mgr, auth_user = make_business(company="TestCo", uen="US3_UEN")
+    ba.refresh_from_db()
+    deposit_to_business(ba, balance)
+    ba.refresh_from_db()
+    return ba, mgr, auth_user
+
+
+def test_approve_business_pending_sets_status_approved():
+    from banking.services import approve_business_pending
+    from banking.models import PendingTransaction
+    ba, _, auth_user = make_business_with_balance()
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("100.00")
+    )
+    approve_business_pending(pt, auth_user)
+    pt.refresh_from_db()
+    assert pt.status == PendingTransaction.APPROVED
+    assert pt.decided_by == auth_user
+    assert pt.decided_at is not None
+
+
+def test_approve_business_pending_updates_business_account_balance():
+    from banking.services import approve_business_pending
+    from banking.models import PendingTransaction
+    ba, _, auth_user = make_business_with_balance(Decimal("5000.00"))
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("1000.00")
+    )
+    approve_business_pending(pt, auth_user)
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("4000.00")
+
+
+def test_approve_business_pending_creates_business_transaction():
+    from banking.services import approve_business_pending
+    from banking.models import PendingTransaction, BusinessTransaction
+    ba, _, auth_user = make_business_with_balance()
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("500.00")
+    )
+    approve_business_pending(pt, auth_user)
+    assert BusinessTransaction.objects.filter(
+        business_account=ba, transaction_type=BusinessTransaction.WITHDRAWAL
+    ).exists()
+
+
+def test_approve_business_pending_insufficient_funds_leaves_status_pending():
+    from banking.services import approve_business_pending
+    from banking.models import PendingTransaction
+    ba, _, auth_user = make_business(company="BreakCo", uen="BREAK_UEN")
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("9999.00")
+    )
+    with pytest.raises(InsufficientFundsError):
+        approve_business_pending(pt, auth_user)
+    pt.refresh_from_db()
+    assert pt.status == PendingTransaction.PENDING
+
+
+def test_reject_business_pending_sets_status_rejected():
+    from banking.services import reject_business_pending
+    from banking.models import PendingTransaction
+    ba, _, auth_user = make_business_with_balance()
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("100.00")
+    )
+    reject_business_pending(pt, auth_user)
+    pt.refresh_from_db()
+    assert pt.status == PendingTransaction.REJECTED
+    assert pt.decided_by == auth_user
+
+
+def test_reject_business_pending_creates_rejected_business_transaction():
+    from banking.services import reject_business_pending
+    from banking.models import PendingTransaction, BusinessTransaction
+    ba, _, auth_user = make_business_with_balance()
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("200.00")
+    )
+    reject_business_pending(pt, auth_user)
+    assert BusinessTransaction.objects.filter(
+        business_account=ba, transaction_type=BusinessTransaction.REJECTED
+    ).exists()
+
+
+def test_reject_business_pending_balance_unchanged():
+    from banking.services import reject_business_pending
+    from banking.models import PendingTransaction
+    ba, _, auth_user = make_business_with_balance(Decimal("3000.00"))
+    pt = PendingTransaction.objects.create(
+        business_account=ba, transaction_type=PendingTransaction.WITHDRAWAL, amount=Decimal("500.00")
+    )
+    reject_business_pending(pt, auth_user)
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("3000.00")

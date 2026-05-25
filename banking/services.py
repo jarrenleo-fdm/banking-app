@@ -1,10 +1,14 @@
 """Atomic banking service layer."""
+import random
+import re
+import string
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 
-from .models import Account, Biller, Transaction
+from .models import Account, AccountManagerProfile, Authoriser, Biller, BusinessAccount, BusinessTransaction, PendingTransaction, Transaction
 
 
 class BankingError(Exception):
@@ -81,6 +85,7 @@ def pay_bill(account: Account, biller: Biller, amount: Decimal) -> Transaction:
     )
 
 
+
 @transaction.atomic
 def transfer(
     sender_account: Account,
@@ -132,3 +137,200 @@ def transfer(
         description=description,
     )
     return out_transaction, in_transaction
+
+
+def _next_odd_phone():
+    """Return the next available odd phone number ≥ 80000001 for managers."""
+    User = get_user_model()
+    existing = set(User.objects.values_list("phone_number", flat=True))
+    candidate = 80000001
+    while str(candidate) in existing:
+        candidate += 2
+    return str(candidate)
+
+
+def _next_even_phone():
+    """Return the next available even phone number ≥ 80000002 for authorisers."""
+    User = get_user_model()
+    existing = set(User.objects.values_list("phone_number", flat=True))
+    candidate = 80000002
+    while str(candidate) in existing:
+        candidate += 2
+    return str(candidate)
+
+
+def _make_slug(company_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9]", "", company_name.lower())
+    return slug[:20]
+
+
+def _unique_username(prefix: str) -> str:
+    User = get_user_model()
+    base = f"{prefix}"
+    if not User.objects.filter(username=base).exists():
+        return base
+    i = 2
+    while User.objects.filter(username=f"{base}{i}").exists():
+        i += 1
+    return f"{base}{i}"
+
+
+def _random_password() -> str:
+    chars = string.ascii_letters + string.digits
+    return "Demo@" + "".join(random.choices(chars, k=6))
+
+
+@transaction.atomic
+def create_business_account_mock(
+    company_name: str,
+    uen: str,
+    street: str,
+    city: str,
+    postal_code: str,
+) -> dict:
+    """
+    Mock SQL: creates a BusinessAccount, manager user, and authoriser user atomically.
+    Returns a credentials dict shown once on the confirmation screen.
+    """
+    User = get_user_model()
+    slug = _make_slug(company_name)
+
+    business_account = BusinessAccount.objects.create(
+        company_name=company_name,
+        uen=uen,
+        street=street,
+        city=city,
+        postal_code=postal_code,
+    )
+
+    manager_phone = _next_odd_phone()
+    manager_username = _unique_username(f"manager.{slug}")
+    manager_password = _random_password()
+    manager_user = User.objects.create_user(
+        username=manager_username,
+        email=f"{manager_username}@demo.internal",
+        name=f"Manager ({company_name})",
+        phone_number=manager_phone,
+        password=manager_password,
+    )
+    AccountManagerProfile.objects.create(user=manager_user, business_account=business_account)
+
+    authoriser_phone = _next_even_phone()
+    authoriser_username = _unique_username(f"authoriser.{slug}")
+    authoriser_password = _random_password()
+    authoriser_user = User.objects.create_user(
+        username=authoriser_username,
+        email=f"{authoriser_username}@demo.internal",
+        name=f"Authoriser ({company_name})",
+        phone_number=authoriser_phone,
+        password=authoriser_password,
+    )
+    Authoriser.objects.create(user=authoriser_user, business_account=business_account)
+
+    return {
+        "business_account_id": business_account.pk,
+        "manager_username": manager_username,
+        "manager_password": manager_password,
+        "manager_phone": manager_phone,
+        "authoriser_username": authoriser_username,
+        "authoriser_password": authoriser_password,
+        "authoriser_phone": authoriser_phone,
+    }
+
+
+@transaction.atomic
+def deposit_to_business(business_account: BusinessAccount, amount: Decimal) -> BusinessTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.select_for_update().get(pk=business_account.pk)
+    ba.balance += amount
+    ba.save(update_fields=["balance"])
+    return BusinessTransaction.objects.create(
+        business_account=ba,
+        transaction_type=BusinessTransaction.DEPOSIT,
+        amount=amount,
+        balance_after=ba.balance,
+    )
+
+
+@transaction.atomic
+def create_pending_withdrawal(business_account: BusinessAccount, amount: Decimal) -> PendingTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.get(pk=business_account.pk)
+    if ba.balance < amount:
+        raise InsufficientFundsError("Insufficient funds.")
+    return PendingTransaction.objects.create(
+        business_account=ba,
+        transaction_type=PendingTransaction.WITHDRAWAL,
+        amount=amount,
+    )
+
+
+@transaction.atomic
+def create_pending_transfer(business_account: BusinessAccount, amount: Decimal, recipient_phone: str) -> PendingTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.get(pk=business_account.pk)
+    if ba.balance < amount:
+        raise InsufficientFundsError("Insufficient funds.")
+    try:
+        recipient_account = Account.objects.get(user__phone_number=recipient_phone)
+    except Account.DoesNotExist as exc:
+        raise RecipientNotFoundError("No account found with that phone number.") from exc
+    return PendingTransaction.objects.create(
+        business_account=ba,
+        transaction_type=PendingTransaction.TRANSFER_OUT,
+        amount=amount,
+        counterparty=recipient_account,
+    )
+
+
+@transaction.atomic
+def create_pending_bill_payment(business_account: BusinessAccount, amount: Decimal, category: str, reference: str) -> PendingTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.get(pk=business_account.pk)
+    if ba.balance < amount:
+        raise InsufficientFundsError("Insufficient funds.")
+    return PendingTransaction.objects.create(
+        business_account=ba,
+        transaction_type=PendingTransaction.BILL_PAYMENT,
+        amount=amount,
+        description=f"{category} ({reference})",
+    )
+
+
+@transaction.atomic
+def approve_business_pending(pending_tx: PendingTransaction, decided_by) -> None:
+    pt = PendingTransaction.objects.select_for_update().get(pk=pending_tx.pk)
+    ba = BusinessAccount.objects.select_for_update().get(pk=pt.business_account_id)
+    if ba.balance < pt.amount:
+        raise InsufficientFundsError("Insufficient funds.")
+    ba.balance -= pt.amount
+    ba.save(update_fields=["balance"])
+    pt.status = PendingTransaction.APPROVED
+    pt.decided_at = timezone.now()
+    pt.decided_by = decided_by
+    pt.save(update_fields=["status", "decided_at", "decided_by"])
+    BusinessTransaction.objects.create(
+        business_account=ba,
+        transaction_type=pt.transaction_type,
+        amount=pt.amount,
+        balance_after=ba.balance,
+        counterparty=pt.counterparty,
+        description=pt.description,
+    )
+
+
+@transaction.atomic
+def reject_business_pending(pending_tx: PendingTransaction, decided_by) -> None:
+    pt = PendingTransaction.objects.get(pk=pending_tx.pk)
+    ba = pt.business_account
+    pt.status = PendingTransaction.REJECTED
+    pt.decided_at = timezone.now()
+    pt.decided_by = decided_by
+    pt.save(update_fields=["status", "decided_at", "decided_by"])
+    BusinessTransaction.objects.create(
+        business_account=ba,
+        transaction_type=BusinessTransaction.REJECTED,
+        amount=pt.amount,
+        balance_after=ba.balance,
+        description=f"Rejected: {pt.get_transaction_type_display()}",
+    )

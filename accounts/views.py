@@ -7,13 +7,13 @@ from django.contrib.auth import logout as auth_logout
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
-from banking.models import BusinessProfile
+from banking.services import deposit
 
 from .forms import LoginForm, RegistrationForm
 
 
 def signup_view(request):
-    """Register a new user and redirect to login."""
+    """Register a new personal account user and redirect to login."""
     if request.method == "POST":
         form = RegistrationForm(request.POST)
         if form.is_valid():
@@ -22,20 +22,7 @@ def signup_view(request):
                 form.cleaned_data.get("initial_balance") or Decimal("0.00")
             )
             if initial_balance > Decimal("0.00"):
-                user.account.balance = initial_balance
-                user.account.save(update_fields=["balance"])
-
-            if form.cleaned_data.get("account_type") == "BUSINESS":
-                user.account.account_type = "BUSINESS"
-                user.account.save(update_fields=["account_type"])
-                BusinessProfile.objects.create(
-                    account=user.account,
-                    company_name=form.cleaned_data["company_name"].strip(),
-                    business_registration_number=(
-                        form.cleaned_data["business_registration_number"].strip()
-                    ),
-                )
-
+                deposit(user.account, initial_balance)
             messages.success(request, "Account created — please log in.")
             return redirect("accounts:login")
     else:

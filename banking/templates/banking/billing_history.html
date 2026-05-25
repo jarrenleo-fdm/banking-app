@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load humanize %}
 {% block title %}Bill Payment History{% endblock %}
 {% block page_title %}Bill Payment History{% endblock %}
 {% block content %}
@@ -21,11 +22,11 @@
       <tr>
         <td>{{ payment.description }}</td>
         <td>
-          <span class="amount debit">${{ payment.amount|floatformat:2 }}</span>
+          <span class="amount debit">${{ payment.amount|floatformat:2|intcomma }}</span>
         </td>
         <td>{{ payment.timestamp }}</td>
         <td>
-          <span class="amount">${{ payment.balance_after|floatformat:2 }}</span>
+          <span class="amount">${{ payment.balance_after|floatformat:2|intcomma }}</span>
         </td>
       </tr>
       {% endfor %}

@@ -5,17 +5,9 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
-from django.core.validators import RegexValidator
-
-from banking.models import BusinessProfile
 
 
 User = get_user_model()
-
-ACCOUNT_TYPE_CHOICES = [
-    ("PERSONAL", "Personal"),
-    ("BUSINESS", "Business"),
-]
 
 
 class RegistrationForm(forms.ModelForm):
@@ -38,26 +30,6 @@ class RegistrationForm(forms.ModelForm):
         decimal_places=2,
         required=False,
         initial=Decimal("0.00"),
-    )
-    account_type = forms.ChoiceField(
-        label="Account type",
-        choices=ACCOUNT_TYPE_CHOICES,
-        initial="PERSONAL",
-        required=False,
-    )
-    company_name = forms.CharField(
-        label="Company name",
-        max_length=200,
-        required=False,
-    )
-    business_registration_number = forms.CharField(
-        label="Business registration number",
-        max_length=20,
-        required=False,
-        validators=[RegexValidator(
-            r"^[A-Za-z0-9]{6,20}$",
-            "Enter a valid registration number (6–20 alphanumeric characters).",
-        )],
     )
 
     class Meta:
@@ -92,30 +64,6 @@ class RegistrationForm(forms.ModelForm):
             self.add_error("password2", "Passwords do not match.")
         if password1:
             validate_password(password1)
-
-        if not cleaned.get("account_type"):
-            cleaned["account_type"] = "PERSONAL"
-
-        if cleaned.get("account_type") == "BUSINESS":
-            company_name = cleaned.get("company_name", "").strip()
-            reg_number = cleaned.get("business_registration_number", "").strip()
-            if not company_name:
-                self.add_error(
-                    "company_name",
-                    "Company name is required for business accounts.",
-                )
-            if not reg_number:
-                self.add_error(
-                    "business_registration_number",
-                    "Business registration number is required for business accounts.",
-                )
-            elif BusinessProfile.objects.filter(
-                business_registration_number=reg_number
-            ).exists():
-                self.add_error(
-                    "business_registration_number",
-                    "This registration number is already in use.",
-                )
         return cleaned
 
     def save(self, commit=True):

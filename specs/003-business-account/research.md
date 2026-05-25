@@ -1,38 +1,109 @@
-# Research: Business Account Registration
+# Research: Business Account (Revised Model)
 
-## Existing Codebase Findings
+## Technology Stack
 
-### Decision: account_type stored on Account model (not CustomUser)
+**Decision**: Extend the existing Django 5.x / Python 3.14.5 / SQLite3 (prototype tier) stack — no
+new dependencies required.
 
-- **Rationale**: `CustomUser` is a pure authentication model (username, email, phone_number, password). `Account` is the banking entity and the correct home for financial account classification. Adding `account_type` to `Account` keeps the auth model free of domain concerns and aligns with the existing separation: `accounts` app = auth, `banking` app = banking operations.
-- **Alternatives considered**: Adding `account_type` to `CustomUser` — rejected; mixes auth and domain concerns. Introducing a separate `AccountType` table — rejected; a single CharField with choices is sufficient for a two-value enum at this scope.
+**Rationale**: All required primitives (models, forms, services, views, templates) are already
+present. The mock-SQL creation pattern is a service function wrapped in `@transaction.atomic`,
+which Django already provides.
 
-### Decision: BusinessProfile model in banking app, linked OneToOne to Account
+**Alternatives considered**: Django REST Framework for a JSON API — rejected; the app is
+server-rendered with no existing API layer.
 
-- **Rationale**: Business-specific data (company name, registration number) is a banking-domain concern, not an auth concern. Linking `BusinessProfile` directly to `Account` via `OneToOne` means all business context is reachable from `account.business_profile` without crossing app boundaries unnecessarily. The `Account` model already has the OneToOne relationship with `CustomUser`, so both are accessible from a single starting point.
-- **Alternatives considered**: Linking `BusinessProfile` to `CustomUser` (in the `accounts` app) — rejected; business registration data belongs in the banking domain. A separate `accounts` sub-table — rejected; adds cross-app FK complexity with no benefit.
+---
 
-### Decision: account_type and BusinessProfile set in signup_view after signal
+## Decision 1 — BusinessAccount as a standalone model (not tied to CustomUser)
 
-- **Rationale**: `Account` is auto-created by the `post_save` signal on `CustomUser` with `account_type=PERSONAL` as default. The signup view already handles post-signal work (setting `initial_balance`). Following the same pattern: after `form.save()`, fetch `user.account`, update `account_type` with `save(update_fields=["account_type"])`, and — if business — create `BusinessProfile`. This is safe because signal and view run sequentially in the same request thread.
-- **Alternatives considered**: Modifying the signal to accept account_type — rejected; signals do not carry form data cleanly. Creating Account directly in the view — rejected; would duplicate the signal logic and break other registration paths.
+**Decision**: `BusinessAccount` is a new top-level model with its own `balance` field. It is not
+a `User` and has no login session of its own.
 
-### Decision: business_registration_number format — alphanumeric, 6–20 characters
+**Rationale**: The spec explicitly states the business account is not a login account. Attaching
+it to `CustomUser` (via `account_type`) was the original design error. A standalone model cleanly
+expresses that the business entity is managed *by* users, not *as* a user.
 
-- **Rationale**: The spec states no specific country standard is required. A `RegexValidator(r'^[A-Za-z0-9]{6,20}$')` covers government-issued alphanumeric registration numbers (Singapore UEN: 9–10 chars, UK Companies House: 8 chars, US EIN: 10 digits). The range 6–20 is permissive enough for all common formats.
-- **Alternatives considered**: Country-specific format — out of scope (spec assumption). UUID-style format — not consistent with real registration number conventions.
+**Alternatives considered**:
+- Reuse `Account` with `account_type=BUSINESS` (old model) — rejected; it conflates authentication
+  identity with the banking entity.
+- Use Django's generic content type framework — rejected; over-engineered for a demo.
 
-### Decision: Prototype / Learning Tier (inherited from project baseline)
+---
 
-- **Rationale**: Project uses SQLite3 and `@transaction.atomic` without `select_for_update()`. SonarQube CI is not configured. This feature does not change the tier; it inherits the existing Prototype/Learning tier configuration.
-- **Alternatives considered**: N/A — tier is set at project level.
+## Decision 2 — Separate BusinessTransaction model (not extending Transaction)
 
-### Decision: Business field visibility toggled with inline JavaScript
+**Decision**: A new `BusinessTransaction` model records all executed/rejected transactions for a
+`BusinessAccount`. It mirrors the `Transaction` field set but FKs to `BusinessAccount` instead of
+`Account`.
 
-- **Rationale**: The project has no JS build pipeline; all existing interactivity (password criteria checklist, UX enhancements) uses inline or single static JS files. A small inline `<script>` block that shows/hides the business fields div on radio button change is sufficient and adds no dependency.
-- **Alternatives considered**: Server-side conditional rendering only (two separate form pages) — rejected; creates an unnecessary extra step for the user. A JavaScript framework — rejected; not present in the project.
+**Rationale**: Making `Transaction.account` nullable to accommodate both personal and business
+accounts would break every queryset in the personal account flow and violate the "surgical changes"
+principle. Two clean models are simpler than one model with dual nullable FKs.
 
-### Decision: Migration is additive and reversible
+**Alternatives considered**:
+- Nullable `business_account` FK on existing `Transaction` — rejected; breaks non-null assumption
+  throughout the codebase.
+- Generic FK (ContentType) — rejected; unnecessary abstraction for a prototype.
 
-- **Rationale**: Adding `account_type` with a default of `PERSONAL` is non-breaking for existing rows. `BusinessProfile` is a new table with no impact on existing data. Django's migration framework will generate a clean, reversible migration.
-- **Alternatives considered**: Data migration to backfill account_type — not needed; `default=PERSONAL` handles existing rows automatically.
+---
+
+## Decision 3 — Modify existing Authoriser model (not a new parallel model)
+
+**Decision**: Change `Authoriser.business_account` FK target from `Account` → `BusinessAccount`
+and promote it from `ForeignKey` to `OneToOneField` in a single migration.
+
+**Rationale**: Creating a `BusinessAuthoriser` model alongside the old `Authoriser` would leave
+dead code and a confused schema. One clean migration replaces the wrong relationship.
+
+**Alternatives considered**:
+- New `BusinessAuthoriser` model in parallel — rejected; creates schema junk and requires all
+  authoriser views to import both models.
+
+---
+
+## Decision 4 — Sequential counter for demo phone numbers
+
+**Decision**: Manager users get the next odd number in the `8xxxxxxx` range (80000001, 80000003, …);
+authoriser users get the next even number (80000002, 80000004, …). The service queries existing
+phone numbers before each assignment.
+
+**Rationale**: `CustomUser.phone_number` must be unique and match `^[89]\d{7}$`. A counter is
+deterministic, clearly demo data, and provably unique within the query.
+
+**Alternatives considered**:
+- Hash of business name truncated to 8 digits — rejected; collision risk and hard to reason about.
+- Fixed hardcoded values — rejected; breaks after the first business account is created.
+
+---
+
+## Decision 5 — No saved billers for business accounts
+
+**Decision**: Business account bill payments submit biller category, reference, and amount inline
+each time. The `Biller` model is not extended.
+
+**Rationale**: Extending `Biller` with a nullable `business_account` FK would break its
+`unique_together` constraint and require migrations touching personal account flows. For a demo,
+inline bill payments are sufficient.
+
+**Alternatives considered**:
+- Add `business_account` nullable FK to `Biller` — rejected; requires constraint changes and
+  complicates the personal biller flow.
+- Separate `BusinessBiller` model — rejected; over-engineered for demo scope.
+
+---
+
+## Decision 6 — Credential generation pattern
+
+**Decision**: Passwords are generated as `"Demo@" + 6 random chars` (letters + digits + `@#!`),
+satisfying the app's `PasswordComplexityValidator`. Usernames follow `manager.<slug>` /
+`authoriser.<slug>` where `<slug>` is the business name lowercased, non-alphanumeric chars
+stripped, truncated to 20 chars. A numeric suffix resolves collisions.
+
+**Rationale**: Generated passwords must pass Django's built-in validators (min length, complexity)
+and the app's custom `PasswordComplexityValidator` (defined in `accounts/validators.py`).
+The `Demo@` prefix satisfies uppercase + special-char requirements while being obviously demo data.
+
+**Alternatives considered**:
+- UUID-based passwords — rejected; may fail complexity validators and are harder to read on screen.
+- Fixed demo password for all accounts — rejected; security principle (Principle I) requires
+  distinct credentials.
