@@ -1,38 +1,38 @@
 {% extends "base_auth.html" %}
 {% block title %}Business Account Created{% endblock %}
 {% block content %}
-<div class="auth-card">
+<div class="auth-card" style="max-width: 600px;">
   <h1>Business Account Created</h1>
-  <p style="color: var(--danger, red); font-weight: bold;">
+  <p style="color: var(--danger, red); font-weight: 600; font-size: 14px;">
     These credentials are shown <strong>once only</strong>. Save them now — refreshing this page will not show them again.
   </p>
 
-  <table style="width: 100%; border-collapse: collapse; margin-top: 16px;">
+  <table style="margin-top: 8px;">
     <thead>
       <tr>
-        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Role</th>
-        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Username</th>
-        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Password</th>
-        <th style="text-align: left; padding: 8px; border-bottom: 1px solid #ccc;">Phone</th>
+        <th>Role</th>
+        <th>Username</th>
+        <th>Password</th>
+        <th>Phone</th>
       </tr>
     </thead>
     <tbody>
       <tr>
-        <td style="padding: 8px;">Account Manager</td>
-        <td style="padding: 8px;"><code>{{ creds.manager_username }}</code></td>
-        <td style="padding: 8px;"><code>{{ creds.manager_password }}</code></td>
-        <td style="padding: 8px;"><code>{{ creds.manager_phone }}</code></td>
+        <td>Account Manager</td>
+        <td><code>{{ creds.manager_username }}</code></td>
+        <td><code>{{ creds.manager_password }}</code></td>
+        <td><code>{{ creds.manager_phone }}</code></td>
       </tr>
       <tr>
-        <td style="padding: 8px;">Authoriser</td>
-        <td style="padding: 8px;"><code>{{ creds.authoriser_username }}</code></td>
-        <td style="padding: 8px;"><code>{{ creds.authoriser_password }}</code></td>
-        <td style="padding: 8px;"><code>{{ creds.authoriser_phone }}</code></td>
+        <td>Authoriser</td>
+        <td><code>{{ creds.authoriser_username }}</code></td>
+        <td><code>{{ creds.authoriser_password }}</code></td>
+        <td><code>{{ creds.authoriser_phone }}</code></td>
       </tr>
     </tbody>
   </table>
 
-  <p style="margin-top: 24px;">
+  <p class="auth-footer" style="margin-top: 24px; text-align: left;">
     <a href="{% url 'accounts:login' %}">Log in</a> &nbsp;|&nbsp;
     <a href="{% url 'banking:create_business_account' %}">Create another business account</a>
   </p>

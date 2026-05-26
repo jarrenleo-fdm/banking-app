@@ -35,6 +35,8 @@ Standalone banking entity representing the business. Not a login account.
 **Validation rules**:
 - `company_name`, `uen`, `street`, `city`, `postal_code` must not be blank or whitespace-only
 - `uen` must be unique across all `BusinessAccount` records
+- `balance` must be ≥ 7,000.00 at all times (enforced at creation, at outgoing-transaction submission, and at authoriser approval)
+- `balance` is set to `initial_deposit` (≥ 7,000.00) at creation; initial deposit is recorded as a `BusinessTransaction(DEPOSIT)` in the same `@transaction.atomic` block
 
 ---
 

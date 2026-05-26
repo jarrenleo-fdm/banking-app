@@ -321,6 +321,7 @@ def create_business_account_view(request):
                 street=form.cleaned_data["street"],
                 city=form.cleaned_data["city"],
                 postal_code=form.cleaned_data["postal_code"],
+                initial_deposit=form.cleaned_data["initial_deposit"],
             )
             request.session["business_created_credentials"] = creds
             return redirect(f"/business/created/?id={creds['business_account_id']}")
@@ -364,11 +365,11 @@ def approve_transaction_view(request, pending_tx_id):
     )
     if pending_tx.business_account.authoriser.user != request.user:
         return HttpResponseForbidden()
-    try:
-        approve_business_pending(pending_tx, request.user)
+    result = approve_business_pending(pending_tx, request.user)
+    if result:
         messages.success(request, "Transaction approved and executed.")
-    except BankingError as exc:
-        messages.error(request, str(exc))
+    else:
+        messages.error(request, "Transaction automatically rejected: minimum balance would be breached.")
     return redirect("banking:authoriser_queue")
 
 

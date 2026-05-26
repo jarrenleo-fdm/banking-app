@@ -21,6 +21,7 @@ No superuser required. All accounts are created via the public form.
    - **Street**: 1 Marina Boulevard
    - **City**: Singapore
    - **Postal Code**: 018989
+   - **Initial Deposit**: 10000
 3. Click **Create Business Account**
 4. The confirmation screen shows — **save these credentials**:
 
@@ -28,6 +29,8 @@ No superuser required. All accounts are created via the public form.
    |------|----------|----------|-------|
    | Account Manager | `manager.acmecorp` | `Demo@xxxxxx` | `80000001` |
    | Authoriser | `authoriser.acmecorp` | `Demo@yyyyyy` | `80000002` |
+
+   Business account balance is **$10,000.00** and the initial deposit appears in the transaction history.
 
    Credentials are shown **once only**. Refreshing this page redirects back to the form.
 
@@ -37,9 +40,9 @@ No superuser required. All accounts are created via the public form.
 
 1. Open `http://127.0.0.1:8000/accounts/login/`
 2. Log in as the **account manager** (`manager.acmecorp`)
-3. Dashboard shows the business account: **Acme Corp**, balance **$0.00**
+3. Dashboard shows the business account: **Acme Corp**, balance **$10,000.00**
 4. Under **Deposit**, enter `5000.00` and click **Deposit**
-5. Confirm: balance is now **$5,000.00** and a deposit appears in transaction history
+5. Confirm: balance is now **$15,000.00** and a deposit appears in transaction history
 
 ---
 
@@ -47,7 +50,7 @@ No superuser required. All accounts are created via the public form.
 
 1. Still logged in as the account manager
 2. Under **Withdraw**, enter `1000.00` and click **Withdraw**
-3. Confirm: balance is still **$5,000.00** (not deducted yet)
+3. Confirm: balance is still **$15,000.00** (not deducted yet)
 4. A success banner reads: "Withdrawal submitted and awaiting authoriser approval."
 5. Log out
 
@@ -60,7 +63,7 @@ No superuser required. All accounts are created via the public form.
 3. Click it → pending transactions queue lists the **$1,000.00 withdrawal**
 4. Click **Approve**
 5. Confirm: flash message "Transaction approved and executed."
-6. Log back in as the account manager → balance is now **$4,000.00**; withdrawal appears in history
+6. Log back in as the account manager → balance is now **$14,000.00**; withdrawal appears in history
 
 ---
 
@@ -80,8 +83,10 @@ No superuser required. All accounts are created via the public form.
 |----------|--------------------|
 | Blank company name on creation form | Field error: "This field is required." |
 | Duplicate UEN | Field error: "A business account with this UEN already exists." |
+| Initial deposit below 7,000 on creation form | Field error on initial deposit field; account not created |
 | Account manager deposits negative amount | Field error: "Amount must be greater than zero." |
-| Account manager withdraws more than balance | Error: "Insufficient funds." |
+| Account manager withdrawal that would bring balance below 7,000 | Error: "Transaction would bring balance below minimum (7,000)."; no pending transaction created |
+| Authoriser approves pending tx that would breach 7,000 floor | Auto-rejected; flash message "Transaction automatically rejected: minimum balance would be breached."; balance unchanged |
 | Transfer to non-existent phone number | Error: "No account found with that phone number." |
 | Visit `/business/created/` after credentials consumed | Redirect to `/business/create/` |
 | Non-authoriser visits authoriser queue | 403 Forbidden |

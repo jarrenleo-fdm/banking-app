@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "banking-mcp": {
+      "command": "python3",
+      "args": ["-m", "mcp_server"],
+      "cwd": "/Users/jarrenleo/Downloads/banking-app",
+      "env": {
+        "DJANGO_ALLOW_ASYNC_UNSAFE": "true"
+      }
+    }
+  }
+}

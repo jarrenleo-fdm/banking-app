@@ -90,6 +90,9 @@ class BusinessCreateForm(forms.Form):
     street = forms.CharField(max_length=200)
     city = forms.CharField(max_length=100)
     postal_code = forms.CharField(max_length=20)
+    initial_deposit = forms.DecimalField(
+        min_value=Decimal("7000.00"), max_digits=12, decimal_places=2, label="Initial Deposit"
+    )
 
     def clean_company_name(self):
         value = self.cleaned_data["company_name"].strip()

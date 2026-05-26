@@ -143,6 +143,82 @@
 
 ---
 
+## Phase 6: Minimum Balance Floor (Post-Clarification 2026-05-26)
+
+**Goal**: Implement the 7,000 minimum balance requirement across creation, outgoing-transaction submission, and authoriser approval. Supersedes the earlier insufficient-funds handling in `create_pending_*` and `approve_business_pending`.
+
+**Affected files**: `banking/tests/test_services.py`, `banking/services.py`, `banking/forms.py`, `banking/views.py`, `banking/templates/banking/create_business_account.html`, `mcp_server/server.py`
+
+**Independent Test**: (a) Visit `/business/create/`, enter initial deposit of 6,999 — form error shown; (b) log in as manager with balance $8,000, submit withdrawal of $1,500 — error shown, no pending tx created; (c) log in as authoriser, approve a pending tx that would bring balance to $6,500 — auto-rejected, flash error, balance unchanged.
+
+### Tests for Phase 6 — Write FIRST, verify FAIL before implementing T055–T062 (Constitution §II)
+
+> **NOTE: Write these tests FIRST. Run `python manage.py test banking` to confirm RED before T055.**
+
+- [X] T050 [US1] Update all 6 existing `test_create_business_account_mock_*` call sites in `banking/tests/test_services.py` to pass `initial_deposit=Decimal("10000.00")` as a keyword argument — these calls currently omit `initial_deposit` and will raise `TypeError` once T055 adds the required parameter
+- [X] T051 [P] [US1] Add 3 new failing tests to `banking/tests/test_services.py`:
+  - `test_create_business_account_mock_sets_balance_to_initial_deposit`: call with `initial_deposit=Decimal("10000.00")`, assert `BusinessAccount.objects.get(uen=...).balance == Decimal("10000.00")`
+  - `test_create_business_account_mock_records_initial_deposit_as_business_transaction`: same call, assert `BusinessTransaction.objects.filter(business_account=..., transaction_type=BusinessTransaction.DEPOSIT, amount=Decimal("10000.00")).exists()`
+  - `test_create_business_account_mock_initial_deposit_below_7000_raises`: call with `initial_deposit=Decimal("6999.99")`, assert `pytest.raises(BankingError)`
+- [X] T052 [US2] Update 4 existing `create_pending_*` tests in `banking/tests/test_services.py` that deposit `Decimal("500.00")` — change to `Decimal("8000.00")` so they remain GREEN after T059 tightens the guard (balance of 500 minus any amount is always < 7,000):
+  - `test_create_pending_withdrawal_creates_pending_tx_status_pending`
+  - `test_create_pending_transfer_valid_creates_pending_tx`
+  - `test_create_pending_transfer_recipient_not_found_raises`
+  - `test_create_pending_bill_payment_creates_pending_tx_with_description`
+- [X] T053 [P] [US2] Add 3 new failing tests to `banking/tests/test_services.py` (each deposits `Decimal("8000.00")`, then submits `Decimal("1500.00")` — leaving $6,500 < $7,000, expects `InsufficientFundsError`):
+  - `test_create_pending_withdrawal_minimum_balance_floor_raises`
+  - `test_create_pending_transfer_minimum_balance_floor_raises` (create a valid recipient user first)
+  - `test_create_pending_bill_payment_minimum_balance_floor_raises`
+- [X] T054 [US3] Make 5 changes to `banking/tests/test_services.py` for `approve_business_pending`:
+  - Change `make_business_with_balance` default from `Decimal("5000.00")` → `Decimal("8000.00")` (old default causes auto-rejection once T060 adds the floor guard)
+  - In `test_approve_business_pending_updates_business_account_balance`: change explicit `Decimal("5000.00")` → `Decimal("8000.00")`; update assertion from `Decimal("4000.00")` → `Decimal("7000.00")` (8000 − 1000 = 7000, exactly at inclusive floor)
+  - Rename `test_approve_business_pending_insufficient_funds_leaves_status_pending` → `test_approve_business_pending_auto_rejects_when_floor_breached`; remove `pytest.raises(InsufficientFundsError)` context manager; add `result = approve_business_pending(pt, auth_user)`; assert `result is False` and `pt.status == PendingTransaction.REJECTED`
+  - Add `test_approve_business_pending_returns_true_on_success`: `make_business_with_balance(Decimal("8000.00"))`, pending withdrawal `Decimal("100.00")` (leaves 7900 ≥ 7000), assert result is True and `pt.status == PendingTransaction.APPROVED`
+  - Add `test_approve_business_pending_auto_rejects_records_business_transaction`: `make_business()` (balance=0), pending withdrawal `Decimal("9999.00")`, call `approve_business_pending(pt, auth_user)`, assert `BusinessTransaction.objects.filter(business_account=ba, transaction_type=BusinessTransaction.REJECTED).exists()`
+
+### Implementation for Phase 6
+
+- [X] T055 [US1] Update `create_business_account_mock` in `banking/services.py`:
+  - Add `initial_deposit: Decimal` as a required parameter after `postal_code`
+  - Add guard at function start: `if initial_deposit < Decimal("7000.00"): raise BankingError("Initial deposit must be at least 7,000.")`
+  - Add `balance=initial_deposit` to the `BusinessAccount.objects.create(...)` call
+  - After BA creation add `BusinessTransaction.objects.create(business_account=business_account, transaction_type=BusinessTransaction.DEPOSIT, amount=initial_deposit, balance_after=initial_deposit)` (still inside `@transaction.atomic`)
+- [X] T056 [P] [US1] Add `initial_deposit = forms.DecimalField(min_value=Decimal("7000.00"), max_digits=12, decimal_places=2, label="Initial Deposit")` to `BusinessCreateForm` in `banking/forms.py` (`Decimal` already imported at line 2)
+- [X] T057 [US1] Pass `initial_deposit=form.cleaned_data["initial_deposit"]` to `create_business_account_mock(...)` in `create_business_account_view` in `banking/views.py`
+- [X] T058 [P] [US1] Insert `initial_deposit` label + input + errors block before the submit button in `banking/templates/banking/create_business_account.html`:
+  ```html
+  <label for="{{ form.initial_deposit.id_for_label }}">{{ form.initial_deposit.label }}</label>
+  {{ form.initial_deposit }} {{ form.initial_deposit.errors }}
+  ```
+- [X] T059 [US2] In `banking/services.py`, update the balance guard in all 3 `create_pending_*` functions (`create_pending_withdrawal`, `create_pending_transfer`, `create_pending_bill_payment`): replace `if ba.balance < amount:` with `if ba.balance - amount < Decimal("7000.00"):` and update the error message to `"Transaction would bring balance below minimum (7,000)."`
+- [X] T060 [US3] Update `approve_business_pending` in `banking/services.py`:
+  - Change return annotation from `-> None` to `-> bool`
+  - Replace `if ba.balance < pt.amount: raise InsufficientFundsError("Insufficient funds.")` with:
+    ```python
+    if ba.balance - pt.amount < Decimal("7000.00"):
+        reject_business_pending(pending_tx, decided_by)
+        return False
+    ```
+  - Add `return True` as the final statement after the `BusinessTransaction.objects.create(...)` call
+- [X] T061 [US3] Update `approve_transaction_view` in `banking/views.py`:
+  - Capture `result = approve_business_pending(pending_tx, request.user)` (was a bare call)
+  - Replace single `messages.success(request, "Transaction approved and executed.")` with `if result: messages.success(request, "Transaction approved and executed.") else: messages.error(request, "Transaction automatically rejected: minimum balance would be breached.")`
+  - Remove the `except BankingError as exc:` block — auto-rejection no longer raises; no other `BankingError` subtype is raised from `approve_business_pending` after T060
+- [X] T062 [P] [US3] Update `approve_transaction` tool in `mcp_server/server.py`:
+  - Change `services.approve_business_pending(pt, decided_by)` to `result = services.approve_business_pending(pt, decided_by)`
+  - Remove the `except services.BankingError as exc: return {"error": str(exc)}` block that wraps the approve call
+  - After the call, add `if not result: return {"status": "AUTO_REJECTED", "reason": "minimum balance breach"}`
+  - Keep the existing `ba = BusinessAccount.objects.get(...); return {"status": "APPROVED", "business_new_balance": str(ba.balance)}` for the True path
+
+### Final Verification for Phase 6
+
+- [X] T063 Run `python manage.py test banking` — all tests GREEN including new T050–T054 tests; no regressions in US2/US3 existing tests
+- [ ] T064 [P] Manually validate the new quickstart.md Validation Checks rows: "Initial deposit below 7,000" (form error), "Withdrawal that would bring balance below 7,000" (error, no pending tx), "Authoriser approves tx that would breach floor" (auto-rejected, flash error, balance unchanged)
+
+**Checkpoint**: Full test suite green; all 10 quickstart.md Validation Checks pass; MCP `approve_transaction` returns `{"status": "AUTO_REJECTED", ...}` on floor breach.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
