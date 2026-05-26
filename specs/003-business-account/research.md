@@ -76,7 +76,27 @@ deterministic, clearly demo data, and provably unique within the query.
 
 ---
 
-## Decision 5 — No saved billers for business accounts
+## Decision 5 — Minimum balance floor (7,000) enforcement
+
+**Decision**: Enforced at two points:
+1. **Account creation**: `initial_deposit < Decimal("7000.00")` raises `BankingError`. Form-level `min_value=Decimal("7000.00")` is the first defence; service guard is the second.
+2. **Account manager submission** (`create_pending_*`): guard `balance - amount < Decimal("7000.00")` raises `InsufficientFundsError`. No pending transaction is created.
+3. **Authoriser approval** (`approve_business_pending`): if `balance - amount < Decimal("7000.00")`, auto-reject — delegate to reject path (records `BusinessTransaction(REJECTED)`, sets `PendingTransaction.status = REJECTED`), return `False`.
+
+**Rationale**: Spec FR-012 + FR-013 explicitly require enforcement at both submission and approval. Auto-rejection at approval handles race conditions (e.g. balance changed between submission and approval due to another approved transaction). Returning `bool` (not raising) at approval because auto-rejection is a defined business outcome, not an error.  
+**Alternatives considered**: Enforce only at submission — rejected; spec mandates both. Raise exception on auto-rejection — rejected; auto-rejection is a normal success path (FR-013).
+
+---
+
+## Decision 6 — Initial deposit recorded as BusinessTransaction
+
+**Decision**: `BusinessTransaction.objects.create(transaction_type=DEPOSIT, amount=initial_deposit, balance_after=initial_deposit)` is created inside the same `@transaction.atomic` block as account creation.  
+**Rationale**: FR-014 — initial deposit must appear in business account transaction history.  
+**Alternatives considered**: Record in a separate step — rejected; must be atomic with account creation.
+
+---
+
+## Decision 8 — No saved billers for business accounts
 
 **Decision**: Business account bill payments submit biller category, reference, and amount inline
 each time. The `Biller` model is not extended.
@@ -92,7 +112,7 @@ inline bill payments are sufficient.
 
 ---
 
-## Decision 6 — Credential generation pattern
+## Decision 9 — Credential generation pattern
 
 **Decision**: Passwords are generated as `"Demo@" + 6 random chars` (letters + digits + `@#!`),
 satisfying the app's `PasswordComplexityValidator`. Usernames follow `manager.<slug>` /
