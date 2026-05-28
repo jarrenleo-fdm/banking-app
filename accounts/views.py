@@ -12,7 +12,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods
 
 from banking.services import deposit
 
@@ -24,6 +24,7 @@ from .models import AccountAPIKey
 logger = logging.getLogger(__name__)
 
 
+@require_http_methods(["GET", "POST"])
 def signup_view(request):
     """Register a new personal account user and redirect to login."""
     if request.method == "POST":
@@ -42,6 +43,7 @@ def signup_view(request):
     return render(request, "accounts/signup.html", {"form": form})
 
 
+@require_http_methods(["GET", "POST"])
 def login_view(request):
     """Authenticate a user with a generic failure message."""
     if request.method == "POST":
@@ -55,6 +57,7 @@ def login_view(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def logout_view(request):
     """End the current session."""
     if request.method == "POST":
@@ -64,6 +67,7 @@ def logout_view(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def profile_view(request):
     """Let the current user update profile details and credentials."""
     password_form = PasswordChangeForm(request.user)
@@ -114,6 +118,7 @@ def profile_view(request):
 
 
 @login_required
+@require_http_methods(["GET", "POST"])
 def api_keys_view(request):
     """List and create MCP API keys for the current user."""
     api_keys = AccountAPIKey.objects.filter(user=request.user)
@@ -145,7 +150,7 @@ def api_keys_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def api_key_revoke_view(request, identifier):
     """Revoke one API key owned by the current user."""
     api_key = get_object_or_404(

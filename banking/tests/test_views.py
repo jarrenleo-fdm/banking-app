@@ -348,6 +348,44 @@ def test_transfer_uses_updated_recipient_phone_number(client):
     assert bob.account.balance == Decimal("25.00")
 
 
+def test_transfer_post_to_business_manager_phone_updates_business_balance(client):
+    from banking.models import BusinessAccount
+    from banking.services import create_business_account_mock
+
+    alice = create_user("Alice", "81234567")
+    deposit(alice.account, Decimal("200.00"))
+    credentials = create_business_account_mock(
+        "Acme Corp",
+        "UEN_VIEW_ROLE_PHONE",
+        "1 Marina Blvd",
+        "Singapore",
+        "018989",
+        initial_deposit=Decimal("10000.00"),
+    )
+    manager = User.objects.get(username=credentials["manager_username"])
+    business_account = BusinessAccount.objects.get(
+        pk=credentials["business_account_id"]
+    )
+    login(client, alice)
+
+    response = client.post(
+        reverse("banking:transfer"),
+        {
+            "recipient_phone": credentials["manager_phone"],
+            "amount": "50.00",
+            "description": "Invoice payment",
+        },
+    )
+
+    alice.account.refresh_from_db()
+    manager.account.refresh_from_db()
+    business_account.refresh_from_db()
+    assert response.status_code == 302
+    assert alice.account.balance == Decimal("150.00")
+    assert manager.account.balance == Decimal("0.00")
+    assert business_account.balance == Decimal("10050.00")
+
+
 # --- US1: Pay a Bill view tests ---
 
 def _make_biller(account, name=Biller.ELECTRICITY, reference="ACC-001"):

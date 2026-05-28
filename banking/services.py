@@ -8,7 +8,16 @@ from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 
-from .models import Account, AccountManagerProfile, Authoriser, Biller, BusinessAccount, BusinessTransaction, PendingTransaction, Transaction
+from .models import (
+    Account,
+    AccountManagerProfile,
+    Authoriser,
+    Biller,
+    BusinessAccount,
+    BusinessTransaction,
+    PendingTransaction,
+    Transaction,
+)
 
 
 class BankingError(Exception):
@@ -34,6 +43,79 @@ class SelfTransferError(BankingError):
 def _validate_amount(amount):
     if amount <= Decimal("0.00"):
         raise InvalidAmountError("Amount must be greater than zero.")
+
+
+def _normalize_phone(phone_number: str) -> str:
+    return phone_number.strip().replace(" ", "").replace("-", "")
+
+
+def _business_account_for_role_phone(phone_number: str) -> BusinessAccount | None:
+    manager_profile = AccountManagerProfile.objects.select_related(
+        "business_account"
+    ).filter(user__phone_number=phone_number).first()
+    if manager_profile is not None:
+        return manager_profile.business_account
+
+    authoriser = Authoriser.objects.select_related("business_account").filter(
+        user__phone_number=phone_number
+    ).first()
+    if authoriser is not None:
+        return authoriser.business_account
+
+    return None
+
+
+def _credit_transfer_recipient(
+    recipient_account: Account,
+    amount: Decimal,
+    sender_account: Account | None = None,
+    description: str = "",
+) -> Transaction | BusinessTransaction:
+    recipient_business_account = _business_account_for_role_phone(
+        recipient_account.user.phone_number
+    )
+    if recipient_business_account is not None:
+        recipient_business_account = BusinessAccount.objects.select_for_update().get(
+            pk=recipient_business_account.pk
+        )
+        recipient_business_account.balance += amount
+        recipient_business_account.save(update_fields=["balance"])
+        return BusinessTransaction.objects.create(
+            business_account=recipient_business_account,
+            transaction_type=BusinessTransaction.DEPOSIT,
+            amount=amount,
+            balance_after=recipient_business_account.balance,
+            counterparty=sender_account,
+            description=description,
+        )
+
+    recipient_account = Account.objects.select_for_update().select_related("user").get(
+        pk=recipient_account.pk
+    )
+    recipient_account.balance += amount
+    recipient_account.save(update_fields=["balance"])
+    return Transaction.objects.create(
+        account=recipient_account,
+        transaction_type=Transaction.TRANSFER_IN,
+        amount=amount,
+        balance_after=recipient_account.balance,
+        counterparty=sender_account,
+        description=description,
+    )
+
+
+def _raise_if_same_business_transfer(
+    business_account: BusinessAccount,
+    recipient_account: Account,
+) -> None:
+    recipient_business_account = _business_account_for_role_phone(
+        recipient_account.user.phone_number
+    )
+    if (
+        recipient_business_account is not None
+        and recipient_business_account.pk == business_account.pk
+    ):
+        raise SelfTransferError("Cannot transfer to your own account")
 
 
 @transaction.atomic
@@ -92,12 +174,12 @@ def transfer(
     recipient_phone: str,
     amount: Decimal,
     description: str = "",
-) -> tuple[Transaction, Transaction]:
+) -> tuple[Transaction, Transaction | BusinessTransaction]:
     _validate_amount(amount)
-    recipient_phone = recipient_phone.strip().replace(" ", "").replace("-", "")
+    recipient_phone = _normalize_phone(recipient_phone)
     user_model = get_user_model()
 
-    sender_account = Account.objects.get(pk=sender_account.pk)
+    sender_account = Account.objects.select_related("user").get(pk=sender_account.pk)
     try:
         recipient_account = Account.objects.select_related("user").get(
             user__phone_number=recipient_phone
@@ -116,9 +198,7 @@ def transfer(
         raise InsufficientFundsError("Insufficient funds")
 
     sender_account.balance -= amount
-    recipient_account.balance += amount
     sender_account.save(update_fields=["balance"])
-    recipient_account.save(update_fields=["balance"])
 
     out_transaction = Transaction.objects.create(
         account=sender_account,
@@ -128,12 +208,10 @@ def transfer(
         counterparty=recipient_account,
         description=description,
     )
-    in_transaction = Transaction.objects.create(
-        account=recipient_account,
-        transaction_type=Transaction.TRANSFER_IN,
-        amount=amount,
-        balance_after=recipient_account.balance,
-        counterparty=sender_account,
+    in_transaction = _credit_transfer_recipient(
+        recipient_account,
+        amount,
+        sender_account=sender_account,
         description=description,
     )
     return out_transaction, in_transaction
@@ -278,13 +356,17 @@ def create_pending_withdrawal(business_account: BusinessAccount, amount: Decimal
 @transaction.atomic
 def create_pending_transfer(business_account: BusinessAccount, amount: Decimal, recipient_phone: str) -> PendingTransaction:
     _validate_amount(amount)
+    recipient_phone = _normalize_phone(recipient_phone)
     ba = BusinessAccount.objects.get(pk=business_account.pk)
     if ba.balance - amount < Decimal("7000.00"):
         raise InsufficientFundsError("Transaction would bring balance below minimum (7,000).")
     try:
-        recipient_account = Account.objects.get(user__phone_number=recipient_phone)
+        recipient_account = Account.objects.select_related("user").get(
+            user__phone_number=recipient_phone
+        )
     except Account.DoesNotExist as exc:
         raise RecipientNotFoundError("No account found with that phone number.") from exc
+    _raise_if_same_business_transfer(ba, recipient_account)
     return PendingTransaction.objects.create(
         business_account=ba,
         transaction_type=PendingTransaction.TRANSFER_OUT,
@@ -326,22 +408,23 @@ def withdraw_from_business(business_account: BusinessAccount, amount: Decimal) -
 @transaction.atomic
 def transfer_from_business(business_account: BusinessAccount, amount: Decimal, recipient_phone: str) -> BusinessTransaction:
     _validate_amount(amount)
+    recipient_phone = _normalize_phone(recipient_phone)
     ba = BusinessAccount.objects.select_for_update().get(pk=business_account.pk)
     if ba.balance - amount < Decimal("7000.00"):
         raise InsufficientFundsError("Transaction would bring balance below minimum (7,000).")
     try:
-        recipient_account = Account.objects.get(user__phone_number=recipient_phone)
+        recipient_account = Account.objects.select_related("user").get(
+            user__phone_number=recipient_phone
+        )
     except Account.DoesNotExist as exc:
         raise RecipientNotFoundError("No account found with that phone number.") from exc
+    _raise_if_same_business_transfer(ba, recipient_account)
     ba.balance -= amount
-    recipient_account.balance += amount
     ba.save(update_fields=["balance"])
-    recipient_account.save(update_fields=["balance"])
-    Transaction.objects.create(
-        account=recipient_account,
-        transaction_type=Transaction.TRANSFER_IN,
-        amount=amount,
-        balance_after=recipient_account.balance,
+    _credit_transfer_recipient(
+        recipient_account,
+        amount,
+        description=f"Transfer from {ba.company_name}",
     )
     return BusinessTransaction.objects.create(
         business_account=ba,
@@ -378,6 +461,12 @@ def approve_business_pending(pending_tx: PendingTransaction, decided_by) -> bool
         return False
     ba.balance -= pt.amount
     ba.save(update_fields=["balance"])
+    if pt.transaction_type == PendingTransaction.TRANSFER_OUT and pt.counterparty:
+        _credit_transfer_recipient(
+            pt.counterparty,
+            pt.amount,
+            description=f"Transfer from {ba.company_name}",
+        )
     pt.status = PendingTransaction.APPROVED
     pt.decided_at = timezone.now()
     pt.decided_by = decided_by

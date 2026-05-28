@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 from django.contrib.auth import get_user_model
 
-from banking.models import Biller, Transaction
+from banking.models import Biller, BusinessAccount, BusinessTransaction, Transaction
 from banking.services import (
     InsufficientFundsError,
     InvalidAmountError,
@@ -175,6 +175,52 @@ def test_transfer_without_description_stores_empty_string():
 
     assert out_txn.description == ""
     assert in_txn.description == ""
+
+
+@pytest.mark.parametrize(
+    ("phone_key", "username_key"),
+    [
+        ("manager_phone", "manager_username"),
+        ("authoriser_phone", "authoriser_username"),
+    ],
+)
+def test_transfer_to_business_role_phone_credits_business_account(
+    phone_key, username_key
+):
+    from banking.services import create_business_account_mock
+
+    alice = create_user("Alice", "81234567")
+    deposit(alice.account, Decimal("200.00"))
+    credentials = create_business_account_mock(
+        "Acme Corp",
+        f"UEN_{phone_key}",
+        "1 Marina Blvd",
+        "Singapore",
+        "018989",
+        initial_deposit=Decimal("10000.00"),
+    )
+    role_user = User.objects.get(username=credentials[username_key])
+    business_account = BusinessAccount.objects.get(
+        pk=credentials["business_account_id"]
+    )
+
+    out_txn, in_txn = transfer(
+        alice.account,
+        credentials[phone_key],
+        Decimal("50.00"),
+        description="Invoice payment",
+    )
+
+    alice.account.refresh_from_db()
+    role_user.account.refresh_from_db()
+    business_account.refresh_from_db()
+    assert alice.account.balance == Decimal("150.00")
+    assert role_user.account.balance == Decimal("0.00")
+    assert business_account.balance == Decimal("10050.00")
+    assert out_txn.counterparty == role_user.account
+    assert in_txn.business_account == business_account
+    assert in_txn.transaction_type == BusinessTransaction.DEPOSIT
+    assert in_txn.description == "Invoice payment"
 
 
 # --- pay_bill service tests ---
@@ -640,6 +686,88 @@ def test_transfer_from_business_executes_immediately_and_creates_transaction():
     assert recipient.account.balance == Decimal("500.00")
     assert txn.transaction_type == BusinessTransaction.TRANSFER_OUT
     assert PendingTransaction.objects.filter(business_account=ba).count() == 0
+
+
+def test_transfer_from_business_to_business_role_phone_credits_business_account():
+    from banking.services import create_business_account_mock, transfer_from_business
+
+    source_ba, _, _ = _make_auth_ba(uen="US4_BUSINESS_RECIPIENT")
+    credentials = create_business_account_mock(
+        "Recipient Co",
+        "BUS_RECIPIENT",
+        "1 Marina Blvd",
+        "Singapore",
+        "018989",
+        initial_deposit=Decimal("10000.00"),
+    )
+    target_ba = BusinessAccount.objects.get(pk=credentials["business_account_id"])
+    target_manager = User.objects.get(username=credentials["manager_username"])
+
+    transfer_from_business(
+        source_ba,
+        Decimal("500.00"),
+        credentials["manager_phone"],
+    )
+
+    source_ba.refresh_from_db()
+    target_ba.refresh_from_db()
+    target_manager.account.refresh_from_db()
+    assert source_ba.balance == Decimal("9500.00")
+    assert target_ba.balance == Decimal("10500.00")
+    assert target_manager.account.balance == Decimal("0.00")
+
+
+def test_approve_business_pending_transfer_credits_personal_recipient():
+    from banking.models import PendingTransaction
+    from banking.services import approve_business_pending, create_pending_transfer
+
+    ba, _, auth_user = _make_auth_ba(uen="US4_PENDING_PERSONAL")
+    recipient = create_user("PendingRecipient", "91234567")
+    pt = create_pending_transfer(ba, Decimal("500.00"), recipient.phone_number)
+
+    approve_business_pending(pt, auth_user)
+
+    ba.refresh_from_db()
+    recipient.account.refresh_from_db()
+    assert ba.balance == Decimal("9500.00")
+    assert recipient.account.balance == Decimal("500.00")
+
+
+def test_approve_business_pending_transfer_to_role_phone_credits_business_account():
+    from banking.models import PendingTransaction
+    from banking.services import (
+        approve_business_pending,
+        create_business_account_mock,
+        create_pending_transfer,
+    )
+
+    source_ba, _, auth_user = _make_auth_ba(uen="US4_PENDING_BUSINESS")
+    credentials = create_business_account_mock(
+        "Pending Target Co",
+        "PENDING_TARGET",
+        "1 Marina Blvd",
+        "Singapore",
+        "018989",
+        initial_deposit=Decimal("10000.00"),
+    )
+    target_ba = BusinessAccount.objects.get(pk=credentials["business_account_id"])
+    target_authoriser = User.objects.get(username=credentials["authoriser_username"])
+    pt = create_pending_transfer(
+        source_ba,
+        Decimal("500.00"),
+        credentials["authoriser_phone"],
+    )
+
+    approve_business_pending(pt, auth_user)
+
+    source_ba.refresh_from_db()
+    target_ba.refresh_from_db()
+    target_authoriser.account.refresh_from_db()
+    pt.refresh_from_db()
+    assert source_ba.balance == Decimal("9500.00")
+    assert target_ba.balance == Decimal("10500.00")
+    assert target_authoriser.account.balance == Decimal("0.00")
+    assert pt.status == PendingTransaction.APPROVED
 
 
 def test_transfer_from_business_recipient_not_found_raises():
