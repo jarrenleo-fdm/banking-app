@@ -1,7 +1,7 @@
-# Specification Quality Checklist: Banking MCP Server
+# Specification Quality Checklist: Personal Banking MCP Server
 
-**Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-05-25
+**Purpose**: Validate specification completeness and quality before proceeding to planning  
+**Created**: 2026-05-28  
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -16,7 +16,7 @@
 - [x] No [NEEDS CLARIFICATION] markers remain
 - [x] Requirements are testable and unambiguous
 - [x] Success criteria are measurable
-- [x] Success criteria are technology-agnostic (no implementation details)
+- [x] Success criteria are technology-agnostic
 - [x] All acceptance scenarios are defined
 - [x] Edge cases are identified
 - [x] Scope is clearly bounded
@@ -31,4 +31,5 @@
 
 ## Notes
 
-- All checklist items pass. Spec is ready for `/speckit-plan`.
+- Checklist revalidated after the 2026-05-28 overhaul to personal-account-only MCP tools and API-key-only MCP login.
+- The revised scope explicitly excludes all business account MCP tools and username/password MCP login.

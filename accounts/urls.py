@@ -10,6 +10,13 @@ urlpatterns = [
     path("signup/", views.signup_view, name="signup"),
     path("login/", views.login_view, name="login"),
     path("logout/", views.logout_view, name="logout"),
+    path("profile/", views.profile_view, name="profile"),
+    path("api-keys/", views.api_keys_view, name="api_keys"),
+    path(
+        "api-keys/<str:identifier>/revoke/",
+        views.api_key_revoke_view,
+        name="api_key_revoke",
+    ),
     path(
         "password-reset/",
         auth_views.PasswordResetView.as_view(

@@ -49,14 +49,17 @@ Reads credentials from session and renders the one-time confirmation screen.
 
 ---
 
-## GET /dashboard/ — MODIFIED (account manager branch)
+## GET /dashboard/ — MODIFIED (three-way branch: personal | manager | authoriser)
 
 **View**: `banking.views.dashboard_view`
 
 If the logged-in user has an `AccountManagerProfile`, the business account dashboard is rendered
 instead of the personal dashboard.
 
-**Personal dashboard** (no `AccountManagerProfile`): unchanged.
+**Branch order** (first match wins):
+1. `hasattr(request.user, "manager_profile")` → manager dashboard
+2. `hasattr(request.user, "authoriser_profile")` → authoriser dashboard
+3. fallthrough → personal dashboard (unchanged)
 
 **Business account manager dashboard**:
 
@@ -73,67 +76,88 @@ instead of the personal dashboard.
 
 No "no-authoriser" banner — authoriser always exists in the new model.
 
+**Business account authoriser dashboard** (Phase 2 — FR-005, FR-009a):
+
+| Context variable | Value |
+|-----------------|-------|
+| `is_authoriser` | `True` |
+| `business_account` | `Authoriser.business_account` |
+| `balance` | `business_account.balance` |
+| `recent_transactions` | Last 5 `BusinessTransaction` records for the business account |
+| `deposit_form` | `DepositForm()` |
+| `withdraw_form` | `WithdrawForm()` |
+| `transfer_form` | `TransferForm()` |
+| `bill_pay_form` | `BusinessBillPaymentForm()` |
+| `authoriser_pending_count` | Count of `PendingTransaction` with status PENDING for the BA (via context processor) |
+
+Pending-queue link rendered in template when `authoriser_pending_count > 0` (FR-009a).
+
 ---
 
-## POST /banking/deposit/ — MODIFIED (account manager branch)
+## POST /banking/deposit/ — MODIFIED (account manager + authoriser branch)
 
 **View**: `banking.views.deposit_view`
 
-If the logged-in user has an `AccountManagerProfile`, calls `deposit_to_business` instead of
-`deposit`.
+If the logged-in user has an `AccountManagerProfile` or `authoriser_profile`, calls
+`deposit_to_business`. Both roles execute immediately.
 
 | Outcome | HTTP Status | Description |
 |---------|-------------|-------------|
-| Valid amount (manager) | 302 → dashboard | `deposit_to_business` executes; `BusinessTransaction` created; balance updated |
-| Invalid amount (manager) | 200 (form re-rendered) | Field-level error |
+| Valid amount (manager or authoriser) | 302 → dashboard | `deposit_to_business` executes; `BusinessTransaction` created; balance updated |
+| Invalid amount (manager or authoriser) | 200 (form re-rendered) | Field-level error |
 | Personal account path | unchanged | Same as before |
 
 ---
 
-## POST /banking/withdraw/ — MODIFIED (account manager branch)
+## POST /banking/withdraw/ — MODIFIED (account manager + authoriser branch)
 
 **View**: `banking.views.withdraw_view`
 
-If the logged-in user has an `AccountManagerProfile`, creates a `PendingTransaction` for the
-`BusinessAccount`. No authoriser-existence check (authoriser always exists in new model).
+Manager branch creates a `PendingTransaction` (balance unchanged). Authoriser branch calls
+`withdraw_from_business` for immediate execution — FR-008a.
 
 | Outcome | HTTP Status | Description |
 |---------|-------------|-------------|
-| Valid amount (manager) | 302 → dashboard | `PendingTransaction` created with status PENDING; balance unchanged |
-| Insufficient funds (manager) | 200 (form re-rendered) | Error: "Insufficient funds." |
-| Invalid amount (manager) | 200 (form re-rendered) | Field-level error |
+| Valid amount (manager) | 302 → dashboard | `create_pending_withdrawal` called; `PendingTransaction` status PENDING; balance unchanged |
+| Valid amount (authoriser) | 302 → dashboard | `withdraw_from_business` called; `BusinessTransaction(WITHDRAWAL)` created; balance deducted immediately |
+| Balance floor breach (manager) | 200 (form re-rendered) | `InsufficientFundsError`; no pending transaction created |
+| Balance floor breach (authoriser) | 200 (form re-rendered) | `InsufficientFundsError`; no transaction created |
+| Invalid amount | 200 (form re-rendered) | Field-level error |
 | Personal account path | unchanged | Same as before |
 
 ---
 
-## POST /banking/transfer/ — MODIFIED (account manager branch)
+## POST /banking/transfer/ — MODIFIED (account manager + authoriser branch)
 
 **View**: `banking.views.transfer_view`
 
-If the logged-in user has an `AccountManagerProfile`, creates a `PendingTransaction` (type
-`TRANSFER_OUT`) for the `BusinessAccount`. Balance unchanged until authoriser approves.
+Manager branch creates a `PendingTransaction`. Authoriser branch calls `transfer_from_business`
+for immediate execution — FR-008a.
 
 | Outcome | HTTP Status | Description |
 |---------|-------------|-------------|
-| Valid recipient + amount (manager) | 302 → dashboard | `PendingTransaction` created; `counterparty` set to recipient `Account` |
-| Recipient not found (manager) | 200 (form re-rendered) | Error: "No account found with that phone number." |
-| Insufficient funds (manager) | 200 (form re-rendered) | Error: "Insufficient funds." |
+| Valid recipient + amount (manager) | 302 → dashboard | `create_pending_transfer` called; `PendingTransaction` created; balance unchanged |
+| Valid recipient + amount (authoriser) | 302 → dashboard | `transfer_from_business` called; `BusinessTransaction(TRANSFER_OUT)` created; balance deducted immediately |
+| Recipient not found | 200 (form re-rendered) | Error: "No account found with that phone number." |
+| Balance floor breach | 200 (form re-rendered) | `InsufficientFundsError`; no transaction created/queued |
 | Personal account path | unchanged | Same as before |
 
 ---
 
-## POST /banking/billing/pay/ — MODIFIED (account manager branch)
+## POST /banking/billing/pay/ — MODIFIED (account manager + authoriser branch)
 
 **View**: `banking.views.pay_bill_view`
 
-If the logged-in user has an `AccountManagerProfile`, the `BusinessBillPaymentForm` (inline
-biller category + reference + amount) is used instead of the saved-biller form. Creates a
-`PendingTransaction` (type `BILL_PAYMENT`) for the `BusinessAccount`.
+Both roles use `BusinessBillPaymentForm` (inline category + reference + amount). Manager branch
+creates a `PendingTransaction`; authoriser branch calls `pay_bill_from_business` for immediate
+execution — FR-008a.
 
 | Outcome | HTTP Status | Description |
 |---------|-------------|-------------|
-| Valid form (manager) | 302 → dashboard | `PendingTransaction` created; description = "Category (reference)" |
-| Invalid amount (manager) | 200 (form re-rendered) | Field-level error |
+| Valid form (manager) | 302 → dashboard | `create_pending_bill_payment` called; `PendingTransaction` created; balance unchanged |
+| Valid form (authoriser) | 302 → dashboard | `pay_bill_from_business` called; `BusinessTransaction(BILL_PAYMENT)` created; balance deducted immediately |
+| Balance floor breach | 200 (form re-rendered) | `InsufficientFundsError`; no transaction created/queued |
+| Invalid amount | 200 (form re-rendered) | Field-level error |
 | Personal account path | unchanged | Same as before |
 
 ---
@@ -184,6 +208,31 @@ Authorization check: `pending_tx.business_account.authoriser.user == request.use
 |---------|-------------|-------------|
 | Valid authoriser, transaction PENDING | 302 → authoriser queue | `reject_business_pending` called; `BusinessTransaction` created with type REJECTED |
 | Not the authoriser for this business account | 403 | Forbidden |
+
+---
+
+## GET /banking/pending/ — NEW (Phase 2, manager read-only queue — FR-009)
+
+**View**: `banking.views.manager_pending_view`
+
+Read-only list of all `PENDING` transactions for the manager's `BusinessAccount`. No approve or
+reject actions. Requires `AccountManagerProfile`; returns 403 if user lacks it.
+
+| Outcome | HTTP Status | Description |
+|---------|-------------|-------------|
+| User has `AccountManagerProfile`, pending txns exist | 200 | Lists all pending transactions |
+| User has `AccountManagerProfile`, no pending txns | 200 | Empty queue message |
+| User does not have `AccountManagerProfile` | 403 | Forbidden |
+
+**Context**:
+```
+pending_txns: PendingTransaction.objects.filter(
+    business_account=request.user.manager_profile.business_account,
+    status=PENDING
+)
+```
+
+No POST handler — page is entirely read-only.
 
 ---
 

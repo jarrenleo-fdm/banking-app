@@ -1,84 +1,123 @@
-# Data Model: Banking MCP Server
+# Data Model: Personal Banking MCP Server
 
-## No new Django models
+## Model Strategy
 
-The MCP server creates **no new database models**. It reads from and writes to the
-existing banking app models via the service layer.
+The 006 MCP feature creates no new Django database models. It consumes existing account,
+API-key, personal banking, transaction, and biller models. The only new state owned by this
+feature is the in-memory MCP session token record.
 
----
+## Existing Models Used
 
-## Existing models used
-
-| Model | Used by |
+| Model | Purpose in 006 MCP |
 |---|---|
-| `accounts.CustomUser` | Login auth, username lookup, create_personal_account |
-| `banking.Account` | get_account, deposit_funds, withdraw_funds, transfer_funds, create_personal_account |
-| `banking.BusinessAccount` | get_business_account, list_business_transactions, create_business_account |
-| `banking.Transaction` | list_transactions |
-| `banking.BusinessTransaction` | list_business_transactions, create_business_account (initial deposit record) |
-| `banking.Biller` | list_billers, pay_bill, add_biller |
-| `banking.AccountManagerProfile` | create_business_account (manager user) |
-| `banking.Authoriser` | approve_transaction / reject_transaction auth check, create_business_account (authoriser user) |
-| `banking.PendingTransaction` | list_pending_transactions, approve_transaction, reject_transaction |
+| `accounts.CustomUser` | Owns the personal account, API keys, phone number, email, username, and password used for signup validation. |
+| `accounts.AccountAPIKey` | Backing credential for `login_with_api_key` and active-session revocation checks. |
+| `accounts.APIKeyAuditEvent` | Non-sensitive audit trail for API key creation, successful auth, failed auth, and revocation from the 007 feature. |
+| `banking.Account` | Personal account balance and relationship to `CustomUser`; target for protected personal tools. |
+| `banking.Transaction` | Immutable personal transaction history for deposits, withdrawals, transfers, and bill payments. |
+| `banking.Biller` | Saved personal billers with fixed category choices and mandatory reference. |
 
-**Note on `Biller.name` field**: The Django model stores the biller category in a field
-named `name` (not `category`), using string choices like `ELECTRICITY`, `WATER_UTILITIES`,
-etc. The MCP layer uses `category` as the external name and maps it to `Biller.name`
-internally. `b.get_name_display()` returns the human-readable label.
+## Entities
 
----
+### User
 
-## In-memory session token record
+- **Source**: `accounts.CustomUser`
+- **Key fields used**: `username`, `name`, `email`, `phone_number`, password hash
+- **Relationships**: Owns one personal `banking.Account`; owns zero or more
+  `accounts.AccountAPIKey` records.
+- **Validation**:
+  - Username, email, and phone number must be unique.
+  - Phone number is an 8-digit Singapore-style mobile number beginning with `8` or `9`.
+  - Password must satisfy the existing password complexity rules.
 
-Not persisted to the database. Lives in the server process only.
+### Account API Key
 
+- **Source**: `accounts.AccountAPIKey`
+- **Key fields used**: owner user, non-secret identifier, secret hash, name, revoked date,
+  last-used date.
+- **Relationships**: Belongs to exactly one `accounts.CustomUser`.
+- **Validation**:
+  - Only active, non-revoked keys may authenticate MCP sessions.
+  - Raw key secrets are not stored and are not returned by 006 MCP tools.
+
+### Authenticated MCP Session
+
+- **Source**: In-memory `mcp_server.auth.TokenStore`
+- **Fields**:
+  - `token`: generated 32-byte hex string returned to the MCP client.
+  - `username`: owning user identity.
+  - `auth_method`: fixed to `api_key`.
+  - `api_key_identifier`: non-secret identifier of the key used to create the session.
+  - `last_used`: timestamp refreshed on successful validation.
+- **Validation**:
+  - Missing, unknown, or expired tokens are invalid.
+  - Tokens whose backing API key has been revoked are invalid.
+  - Session validation returns only the authenticated username to tool handlers.
+
+### Personal Account
+
+- **Source**: `banking.Account`
+- **Key fields used**: owner user, balance, created date.
+- **Relationships**: Belongs to exactly one `accounts.CustomUser`; owns transactions and
+  billers.
+- **Validation**:
+  - Balance must never become negative.
+  - Protected tools must derive the account from the authenticated session.
+
+### Transaction
+
+- **Source**: `banking.Transaction`
+- **Key fields used**: transaction ID, account, type, amount, balance after transaction,
+  counterparty, description, timestamp.
+- **Relationships**: Belongs to one personal account; transfer entries may reference a
+  counterparty personal account.
+- **Validation**:
+  - Immutable history entries are created by existing banking services.
+  - MCP serialization returns `Decimal` amounts as strings.
+
+### Biller
+
+- **Source**: `banking.Biller`
+- **Key fields used**: account, `name` as category, reference, created date.
+- **Relationships**: Belongs to one personal account.
+- **Validation**:
+  - Category must be one of `ELECTRICITY`, `WATER_UTILITIES`,
+    `INTERNET_BROADBAND`, `TELECOMMUNICATIONS`, or `TOWN_COUNCIL`.
+  - Reference is mandatory.
+  - The tuple `(account, name, reference)` must be unique.
+
+## State Transitions
+
+### API-Key-Backed Session
+
+```text
+no session
+  -> login_with_api_key(valid active key)
+VALID session
+  -> protected tool validates within timeout and key still active
+VALID session with refreshed last_used
+  -> token expires OR backing key is revoked OR token is unknown
+INVALID session
 ```
-TokenRecord
-├── username: str          # the authenticated user's username
-├── issued_at: datetime    # when the token was created
-└── last_used: datetime    # updated on every successful write tool call
+
+### Personal Money Movement
+
+```text
+requested
+  -> authenticate session
+  -> validate amount and input
+  -> delegate to banking service inside existing transaction boundary
+  -> success: balance changes and Transaction is recorded
+  -> failure: no balance, biller, or transaction state changes
 ```
 
-**Expiry**: Token is invalid when `now() - last_used > MCP_SESSION_TIMEOUT_MINUTES` (default 15 min).
+### Personal Signup
 
-**Storage**: `dict[str, TokenRecord]` keyed by a randomly generated 32-byte hex token string.
-
----
-
-## Amount validation rules (FR-013)
-
-Applied by the MCP server layer before delegating to `banking.services`:
-
-- `amount > 0`
-- `amount == amount.quantize(Decimal("0.01"))` (at most two decimal places)
-
-The existing `banking.services._validate_amount` checks positivity only; the additional
-decimal-places check lives in `mcp_server/auth.py` or a shared `mcp_server/utils.py`.
-
----
-
-## State transitions
-
-### PendingTransaction status flow (unchanged from existing model)
-
-```
-PENDING → APPROVED  (approve_transaction tool)
-PENDING → REJECTED  (reject_transaction tool)
-```
-
-Calling approve/reject on a non-PENDING transaction returns an error; no status change occurs.
-
----
-
-## Session token lifecycle
-
-```
-(no token)
-    │  login(username, password) succeeds
-    ▼
-VALID token
-    │  write tool call uses token within 15 min of last use → last_used refreshed
-    │  write tool call uses token > 15 min after last use
-    ▼
-EXPIRED (rejected, "please re-login" message returned)
+```text
+submitted signup data
+  -> validate identity fields, phone, password, and initial balance
+  -> create CustomUser
+  -> account signal creates Account
+  -> apply optional initial balance when valid
+  -> return created account summary without API key material
 ```

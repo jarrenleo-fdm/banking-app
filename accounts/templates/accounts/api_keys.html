@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}API Keys{% endblock %}
+{% block page_title %}API Keys{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-hdr">
+    <div>
+      <h2 style="margin-bottom: 0">API Keys</h2>
+      <p class="account-sub" style="margin-top: 4px">
+        Create keys for MCP clients without sharing your account password.
+      </p>
+    </div>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <label for="{{ form.name.id_for_label }}">Key name</label>
+    {{ form.name }}
+    {{ form.name.errors }}
+
+    <label for="{{ form.password.id_for_label }}">Confirm password</label>
+    {{ form.password }}
+    {{ form.password.errors }}
+
+    <p>
+      <button type="submit">Create API key</button>
+    </p>
+  </form>
+</div>
+
+<div class="panel">
+  <div class="panel-hdr">
+    <h2 style="margin-bottom: 0">Existing Keys</h2>
+  </div>
+
+  {% if api_keys %}
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Identifier</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th>Last used</th>
+        <th>Revoked</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key in api_keys %}
+      <tr>
+        <td>{{ key.name }}</td>
+        <td><code>{{ key.identifier }}</code></td>
+        <td>{% if key.is_active %}Active{% else %}Revoked{% endif %}</td>
+        <td>{{ key.created_at|date:"Y-m-d H:i" }}</td>
+        <td>
+          {% if key.last_used_at %}
+          {{ key.last_used_at|date:"Y-m-d H:i" }}
+          {% else %}
+          Never
+          {% endif %}
+        </td>
+        <td>
+          {% if key.revoked_at %}
+          {{ key.revoked_at|date:"Y-m-d H:i" }}
+          {% else %}
+          -
+          {% endif %}
+        </td>
+        <td>
+          {% if key.is_active %}
+          <form method="post" action="{% url 'accounts:api_key_revoke' key.identifier %}">
+            {% csrf_token %}
+            <button type="submit">Revoke</button>
+          </form>
+          {% else %}
+          -
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="account-sub">No API keys yet.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

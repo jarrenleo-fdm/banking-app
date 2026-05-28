@@ -5,6 +5,18 @@
 {% block content %}
 
 <div class="panel">
+  {% if business_account %}
+  <div class="panel-hdr">
+    <div>
+      <h2 style="margin-bottom: 0">{{ business_account.company_name }}</h2>
+      <p class="account-sub" style="margin-top: 4px">
+        <span class="account-type-badge">Business</span>
+        &nbsp;${{ balance|floatformat:2|intcomma }}
+      </p>
+    </div>
+  </div>
+  {% endif %}
+
   {% if transactions %}
   <table>
     <thead>

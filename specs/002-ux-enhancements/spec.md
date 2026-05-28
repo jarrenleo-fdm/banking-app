@@ -3,7 +3,7 @@
 **Feature Branch**: `002-ux-enhancements`
 **Created**: 2026-05-21
 **Status**: Draft
-**Input**: User description: "Improve application based on feedback: password criteria, transaction history improvements, transfer descriptions, and initial balance on registration"
+**Input**: User description: "Improve application based on feedback: password criteria, transaction history improvements, transfer descriptions, initial balance on registration, and user details and credential updates"
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -88,12 +88,36 @@ When registering a new account, a user can optionally enter a starting balance. 
 
 ---
 
+### User Story 6 - Update User Details and Credentials (Priority: P2)
+
+An authenticated user can review and update their personal profile details and account credentials, such as their display name, username, email address, phone number, and password, without creating a new account or contacting support.
+
+**Why this priority**: Contact details and login credentials can become stale or compromised, and phone numbers are used for transfers. Users need a self-service way to keep account identity, contact information, and credential access accurate.
+
+**Independent Test**: Can be tested by logging in, updating profile details and credentials, then confirming the new details are saved, shown back to the user, and used by later account-facing and login flows.
+
+**Acceptance Scenarios**:
+
+1. **Given** a user is logged in, **When** they open the user details page, **Then** their current name, username, email address, and phone number are visible, and password change controls are available without revealing the current password.
+2. **Given** a user enters valid changes to their name, username, email address, or phone number, **When** they submit the update, **Then** the changes are saved and immediately visible on the user details page.
+3. **Given** a user submits a username, email address, or phone number already used by another account, **When** they attempt to save, **Then** the update is rejected and the existing account details remain unchanged.
+4. **Given** a user submits an invalid username or phone number, **When** they attempt to save, **Then** the update is rejected with a clear validation message.
+5. **Given** a user enters their current password and a valid matching new password, **When** they submit the password change, **Then** the password is updated and future login attempts require the new password.
+6. **Given** a user enters an incorrect current password, a weak new password, or mismatched password confirmation, **When** they attempt to save, **Then** the password change is rejected and the existing password remains unchanged.
+
+---
+
 ### Edge Cases
 
 - What happens when a password field is auto-filled by a browser? Criteria should validate against the filled value on blur/change, not only on keystroke.
 - How does the system handle a transaction history entry for a deleted or anonymised account — what name is shown for the counterparty?
 - What is the maximum length for a transfer description, and how is the limit communicated to the user before they exceed it?
 - What happens if a user registers with an initial balance of zero explicitly (typed "0") versus leaving the field blank — both should result in the same account state.
+- What happens when a user submits the user details form without changing any values — the account should remain unchanged and the user should receive clear feedback.
+- What happens when a user changes their phone number after previous transfers — future transfers should use the updated phone number while existing transaction history remains readable.
+- What happens when a user changes their username after previous activity — future logins should use the updated username while existing transaction history remains readable.
+- What happens when username, email, or phone uniqueness conflicts are detected — the user should see which field needs correction without exposing another account's private details.
+- What happens when a password change is attempted with the wrong current password or a weak replacement password — the password should remain unchanged and the user should see field-specific guidance.
 
 ## Requirements *(mandatory)*
 
@@ -111,11 +135,25 @@ When registering a new account, a user can optionally enter a starting balance. 
 - **FR-010**: The registration form MUST include an optional numeric field for an initial account balance.
 - **FR-011**: When the initial balance field is left blank or omitted, the account MUST be created with a balance of zero.
 - **FR-012**: The initial balance field MUST reject negative values and non-numeric input, displaying a validation error on submission.
+- **FR-013**: Authenticated users MUST be able to access a user details update flow from within the signed-in experience.
+- **FR-014**: The user details update flow MUST display the user's current name, username, email address, and phone number before editing, and MUST provide password change controls without displaying the current password.
+- **FR-015**: Users MUST be able to update their name, username, email address, and phone number.
+- **FR-016**: Updated usernames MUST be validated for accepted username format and uniqueness before being saved.
+- **FR-017**: Updated email addresses and phone numbers MUST be validated for proper format and uniqueness before being saved.
+- **FR-018**: Phone number updates MUST follow the same accepted format as registration phone numbers.
+- **FR-019**: If any submitted user detail is invalid or conflicts with another account, the system MUST reject the update and keep the existing user details unchanged.
+- **FR-020**: Successfully updated details MUST be reflected immediately in account-facing pages and future user interactions that display or use those details.
+- **FR-021**: Users MUST be able to change their password from the signed-in experience by providing their current password, a new password, and confirmation of the new password.
+- **FR-022**: Password changes MUST enforce the same password criteria used by registration and password reset.
+- **FR-023**: If the current password is incorrect, the new password is invalid, or the new password confirmation does not match, the system MUST reject the password change and keep the existing password unchanged.
+- **FR-024**: Successfully changed passwords MUST be usable for future logins, and the old password MUST no longer authenticate the user.
 
 ### Key Entities
 
 - **Transaction**: Represents a financial event; key attributes include transaction ID, amount, type (transfer/deposit/withdrawal), timestamp, sender identifier, recipient identifier, and optional description.
 - **Account**: Represents a user's bank account; key attributes include account holder name/identifier and balance.
+- **User Profile**: Represents the signed-in user's identity and contact details; key attributes include name, username, email address, and phone number.
+- **Account Credentials**: Represents the user's login credentials; key attributes include username and password, with password values never displayed after creation.
 - **Password Criteria**: A set of rules a password must satisfy; rendered as a checklist on forms where password input is required.
 
 ## Success Criteria *(mandatory)*
@@ -128,6 +166,10 @@ When registering a new account, a user can optionally enter a starting balance. 
 - **SC-004**: Transfers submitted with a description show that description in the history for both sender and recipient with no data loss.
 - **SC-005**: Accounts created with an explicit initial balance reflect the correct opening balance immediately after registration.
 - **SC-006**: Accounts created without an initial balance entry show a zero balance immediately after registration.
+- **SC-007**: 95% of users can complete a valid user details or credential update in under 2 minutes without support assistance.
+- **SC-008**: 100% of invalid or duplicate username, email, and phone number updates are rejected without changing the user's existing saved details.
+- **SC-009**: 100% of invalid password change attempts are rejected without changing the user's existing password.
+- **SC-010**: 100% of successful user detail and credential updates are visible or usable immediately after saving.
 
 ## Assumptions
 
@@ -135,4 +177,7 @@ When registering a new account, a user can optionally enter a starting balance. 
 - Counterparty identity is stored with each transfer transaction at the time of creation; if an account is later deleted, the stored name or identifier is still displayed.
 - The transfer description is a plain-text field with no rich formatting required.
 - The initial balance field on registration is intended for convenience (e.g., seeding test accounts) and does not represent a real deposit event; no deposit transaction entry is created for it.
-- Password criteria are the same for both registration and password reset flows; no per-flow customisation is needed.
+- Password criteria are the same for registration, password reset, and signed-in password change flows; no per-flow customisation is needed.
+- Signed-in password changes require the current password before accepting a replacement password.
+- User details updates cover personal identity, contact information, and account credentials; account recovery remains handled by the existing password reset flow.
+- Business account company details, manager/authoriser role assignments, and account ownership changes are outside the scope of this UX enhancement.

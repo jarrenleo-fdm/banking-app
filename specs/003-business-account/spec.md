@@ -77,23 +77,24 @@ The authoriser logs into their generated account. If pending transactions exist 
 - **FR-002**: The system MUST validate that business name, UEN, street, city, and postal code are non-empty and non-whitespace, and that the initial deposit is a number ≥ 7,000, before creating any account.
 - **FR-003**: UENs MUST be unique. The system MUST reject creation with a clear validation error if the submitted UEN already exists. Any non-empty alphanumeric string is accepted as a valid UEN; no format pattern is enforced.
 - **FR-004**: On successful form submission, the system MUST execute mock SQL that creates: (1) a `BusinessAccount` entity with balance set to the submitted initial deposit, (2) an account manager `User` linked 1:1 to the business account, (3) an authoriser `User` linked 1:1 to the business account. Credentials for both users MUST be auto-generated from the business name and displayed once on the confirmation screen.
-- **FR-005**: The account manager's dashboard MUST show the business account details (name, balance, transaction history) and provide access to the transaction submission form for that business account.
+- **FR-005**: The account manager's and authoriser's dashboards MUST show the BusinessAccount's details (name, balance, transaction history) as the single source of truth — neither user has a personal balance or transaction history of their own. Both roles read balance and transaction history directly from the BusinessAccount record.
 - **FR-006**: The account manager MUST be able to submit all transaction types (deposit, withdrawal, transfer, bill payment) for the business account.
 - **FR-007**: Deposits submitted by the account manager MUST execute immediately and update the business account balance without entering a pending queue.
 - **FR-008**: Outgoing transactions (withdrawal, transfer, bill payment) submitted by the account manager MUST enter a "Pending" state and NOT modify the business account balance until the authoriser approves them.
-- **FR-009**: The authoriser MUST have an in-app pending transactions view listing all pending transactions for their linked business account, with approve and reject actions for each entry.
+- **FR-008a**: The authoriser MUST be able to submit all transaction types for the business account, mirroring the account manager's submission capabilities. Outgoing transactions (withdrawal, transfer, bill payment) submitted by the authoriser execute immediately and do NOT enter the pending queue.
+- **FR-009**: Both the account manager and authoriser MUST have an in-app pending transactions view listing all pending transactions for their linked business account. The account manager's view is read-only; the authoriser's view includes approve and reject actions for each entry.
 - **FR-009a**: When the authoriser logs in and pending transactions exist for their business account, their dashboard or navigation MUST display a visible link/button to the pending transactions queue. This control MUST NOT appear when no pending transactions exist.
 - **FR-010**: When an authoriser approves a pending transaction, the transaction MUST execute immediately — the business account balance MUST update and the transaction MUST be removed from the pending queue.
 - **FR-011**: When an authoriser rejects a pending transaction, the transaction MUST be cancelled, removed from the pending queue, and recorded in the business account transaction history with status "Rejected".
-- **FR-012**: The business account balance MUST remain ≥ 7,000 at all times. Any outgoing transaction that would result in a balance below 7,000 MUST be blocked at account manager submission (no pending transaction created) and auto-rejected at authoriser approval (see FR-013).
+- **FR-012**: The business account balance MUST remain ≥ 7,000 at all times. Any outgoing transaction that would result in a balance below 7,000 MUST be: (a) blocked at account manager submission (no pending transaction created), (b) blocked at authoriser direct submission (transaction not executed), and (c) auto-rejected at authoriser approval of a manager-submitted pending transaction (see FR-013).
 - **FR-013**: When an authoriser approves a pending outgoing transaction and the current business account balance minus the transaction amount would be below 7,000, the system MUST automatically reject the transaction, record it as "Rejected" in the business account transaction history, and leave the balance unchanged.
 - **FR-014**: The initial deposit submitted on the business account creation form MUST be recorded as a deposit transaction in the business account's transaction history.
 
 ### Key Entities
 
-- **BusinessAccount**: New standalone entity (not a login account); stores business name, UEN, street, city, postal code, and balance. Balance is initialised from the required initial deposit at account creation (minimum 7,000) and must remain ≥ 7,000 at all times. One per business.
-- **AccountManager**: A `User` record auto-created per business account; credentials derived from business name. Linked 1:1 to a `BusinessAccount`. Can submit transactions on behalf of the business account.
-- **Authoriser**: A `User` record auto-created per business account; credentials derived from business name. Linked 1:1 to a `BusinessAccount`. Can approve or reject pending outgoing transactions.
+- **BusinessAccount**: New standalone entity (not a login account); stores business name, UEN, street, city, postal code, balance, and the unified transaction history for the business. Balance is initialised from the required initial deposit at account creation (minimum 7,000) and must remain ≥ 7,000 at all times. Transaction history records all transactions submitted by both the account manager and the authoriser. One per business.
+- **AccountManager**: A `User` record auto-created per business account; credentials derived from business name. Linked 1:1 to a `BusinessAccount`. Has no personal banking balance or transaction history — their account is the business account exclusively. Can submit transactions on behalf of the business account.
+- **Authoriser**: A `User` record auto-created per business account; credentials derived from business name. Linked 1:1 to a `BusinessAccount`. Has no personal banking balance or transaction history — their account is the business account exclusively. Has the same transaction submission capabilities as the account manager (outgoing transactions execute immediately for the authoriser — no pending queue). Can also approve or reject outgoing transactions submitted by the account manager.
 - **PendingTransaction**: Represents an outgoing transaction (withdrawal, transfer, bill payment) submitted by the account manager that has not yet been approved or rejected. Transitions to executed (on approval) or "Rejected" (on manual rejection or minimum balance breach at approval time).
 
 ## Success Criteria *(mandatory)*
@@ -108,6 +109,13 @@ The authoriser logs into their generated account. If pending transactions exist 
 - **SC-006**: 100% of outgoing transactions that would result in a business account balance below 7,000 are blocked — at submission (no pending transaction created) or at approval (automatically rejected). No business account balance ever falls below 7,000.
 
 ## Clarifications
+
+### Session 2026-05-26 (Revised Role Model)
+
+- Q: When the authoriser submits an outgoing transaction (withdrawal, transfer, bill payment), how is it handled? → A: Executes immediately — authoriser's outgoing transactions bypass the pending queue; no approval needed.
+- Q: Do AccountManager and Authoriser users have their own personal banking balance and transaction history? → A: No — they are role-based accounts; their dashboard exclusively shows BusinessAccount data; they have no personal balance or transaction history.
+- Q: Can the account manager view the pending transactions queue? → A: Yes, read-only — both manager and authoriser can see the pending queue, but only the authoriser can approve or reject entries.
+- Q: Is the business account transaction history unified across both roles? → A: Yes — one unified transaction history on BusinessAccount showing all transactions submitted by both the manager and the authoriser.
 
 ### Session 2026-05-26
 
@@ -161,3 +169,4 @@ The authoriser logs into their generated account. If pending transactions exist 
 - Each business account has exactly one account manager and exactly one authoriser, both linked 1:1.
 - Business name is a free-text field; no external business registry lookup or verification is required.
 - Mobile responsiveness is expected to the same standard as the existing sign-up form.
+- AccountManager and Authoriser users are purely role-based accounts; they have no personal banking balance or transaction history. The BusinessAccount is their only financial entity, and it is the single source of truth for balance and transaction history displayed to both roles.

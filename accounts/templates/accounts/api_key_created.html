@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}API Key Created{% endblock %}
+{% block page_title %}API Key Created{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-hdr">
+    <div>
+      <h2 style="margin-bottom: 0">API Key Created</h2>
+      <p class="account-sub" style="margin-top: 4px">
+        This key is shown once. Store it before leaving this page.
+      </p>
+    </div>
+  </div>
+
+  <label>Key name</label>
+  <input type="text" value="{{ api_key.name }}" readonly>
+
+  <label>Identifier</label>
+  <input type="text" value="{{ api_key.identifier }}" readonly>
+
+  <label>API key</label>
+  <input type="text" value="{{ raw_secret }}" readonly>
+
+  <p>
+    <a class="button-link" href="{% url 'accounts:api_keys' %}">Back to API keys</a>
+  </p>
+</div>
+
+{% endblock %}

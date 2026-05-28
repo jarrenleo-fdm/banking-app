@@ -1,7 +1,82 @@
 {% extends "base.html" %}
+{% load humanize %}
 {% block title %}Billing{% endblock %}
 {% block page_title %}Billing{% endblock %}
 {% block content %}
+
+{% if business_account %}
+
+<div class="balance-hero">
+  <div class="balance-hero-inner">
+    <div>
+      <p class="balance-label">Business Billing</p>
+      <p class="balance">${{ balance|floatformat:2|intcomma }}</p>
+      <p class="account-sub">
+        <span class="account-type-badge">Business</span>
+        &nbsp;{{ business_account.company_name }}
+      </p>
+    </div>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Pay a Bill</h2>
+    <form method="post" action="{% url 'banking:pay_bill' %}" novalidate>
+      {% csrf_token %} {{ bill_pay_form.non_field_errors }}
+      <label for="{{ bill_pay_form.category.id_for_label }}">Category</label>
+      {{ bill_pay_form.category }} {{ bill_pay_form.category.errors }}
+      <label for="{{ bill_pay_form.reference.id_for_label }}">Reference</label>
+      {{ bill_pay_form.reference }} {{ bill_pay_form.reference.errors }}
+      <label for="{{ bill_pay_form.amount.id_for_label }}">Amount</label>
+      {{ bill_pay_form.amount }} {{ bill_pay_form.amount.errors }}
+      <p><button type="submit">Pay Bill</button></p>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hdr">
+    <h2 style="margin-bottom: 0">Recent Bill Payments</h2>
+    <a class="panel-link" href="{% url 'banking:billing_history' %}"
+      >Payment history</a
+    >
+  </div>
+  {% if payments %}
+  <table>
+    <thead>
+      <tr>
+        <th>Biller</th>
+        <th>Amount</th>
+        <th>Date / Time</th>
+        <th>Balance After</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for payment in payments %}
+      <tr>
+        <td>{{ payment.description }}</td>
+        <td>
+          <span class="amount debit"
+            >${{ payment.amount|floatformat:2|intcomma }}</span
+          >
+        </td>
+        <td>{{ payment.timestamp }}</td>
+        <td>
+          <span class="amount"
+            >${{ payment.balance_after|floatformat:2|intcomma }}</span
+          >
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No bill payments yet.</p>
+  {% endif %}
+</div>
+
+{% else %}
 
 <div class="grid">
   <div class="card">
@@ -80,5 +155,7 @@
   <p class="empty-state">No saved billers.</p>
   {% endif %}
 </div>
+
+{% endif %}
 
 {% endblock %}

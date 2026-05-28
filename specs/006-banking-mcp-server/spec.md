@@ -1,211 +1,200 @@
-# Feature Specification: Banking MCP Server
+# Feature Specification: Personal Banking MCP Server
 
 **Feature Branch**: `006-banking-mcp-server`  
 **Created**: 2026-05-25  
 **Status**: Draft  
-**Input**: User description: "An MCP server for models to use tools for our banking app. Come up with the tools that models can use"
+**Input**: User description: "Overhaul the MCP banking server spec: remove all business account tools and only allow logins through API keys."
+
+## Clarifications
+
+### Session 2026-05-28
+
+- Q: Should the MCP server expose business account tools? -> A: No. The MCP surface for this feature is personal banking only. Business account lookup, business transaction history, pending approvals, authoriser actions, and business account signup are out of scope.
+- Q: What authentication methods are allowed for MCP login? -> A: API keys only. Username-and-password MCP login is removed from this feature.
+- Q: Are account reads public? -> A: No. Personal account details, transactions, and billers are private account data and require an API-key-authenticated MCP session.
+- Q: Does personal account signup remain available through MCP? -> A: Yes. Creating a personal account is an open signup operation, not a login operation. After signup, MCP access still requires an API key generated for that user through the account API-key feature.
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Query Account Information (Priority: P1)
+### User Story 1 - Authenticate MCP Client With API Key (Priority: P1)
 
-An AI model needs to look up the current balance and account details for a user or business account so it can answer questions like "What is my balance?" or "Show me my account summary."
+An account user who already created an API key connects an MCP client by presenting that key. The MCP client receives a short-lived authenticated session for the owning user without ever using or storing the user's account password.
 
-**Why this priority**: Read-only account information is the most fundamental capability — every other tool depends on knowing account state. It delivers immediate value with no side effects.
+**Why this priority**: Every private account lookup and money movement depends on verified identity. API-key-only login is the security boundary for the entire MCP feature.
 
-**Independent Test**: A model can be given a username and asked "What is the account balance?" — the tool returns the correct balance and account details without any other tools being present.
+**Independent Test**: Use a valid active API key to authenticate through MCP, confirm a session token is returned for the key owner, then confirm the same authentication fails for invalid or revoked keys and that no username/password MCP login is available.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid personal account username, **When** a model calls the get-account tool, **Then** it receives the account holder name, balance, and account creation date.
-2. **Given** a valid business UEN or company name, **When** a model calls the get-business-account tool, **Then** it receives the company name, UEN, address, balance, and manager details.
-3. **Given** an invalid or non-existent username, **When** a model calls the get-account tool, **Then** it receives a clear error indicating the account was not found.
+1. **Given** a valid active API key owned by a user, **When** an MCP client logs in with that key, **Then** it receives a short-lived session token bound to that user.
+2. **Given** an invalid, malformed, expired, or revoked API key, **When** an MCP client attempts to log in, **Then** authentication is rejected with a generic failure message and no session is created.
+3. **Given** a username and password, **When** an MCP client attempts to use them for MCP login, **Then** no password login path is available and no session is created.
+4. **Given** an API-key-authenticated session, **When** the backing API key is revoked before a protected tool is called, **Then** the protected action is rejected and the client must authenticate again with an active key.
+5. **Given** a session that has expired through inactivity, **When** a protected tool is called, **Then** the action is rejected before any private data is returned or balance changes are made.
 
 ---
 
-### User Story 2 - Browse Transaction History (Priority: P1)
+### User Story 2 - Query Own Personal Account Information (Priority: P1)
 
-An AI model needs to retrieve and filter a user's or business's transaction history so it can answer questions like "Show me my last 10 transactions" or "What did I spend on bill payments this month?"
+An API-key-authenticated MCP client retrieves the user's personal account summary, transaction history, and saved billers so an AI assistant can answer questions like "What is my balance?", "Show my last transactions", or "Which billers do I have saved?"
 
-**Why this priority**: Transaction history is the second most critical read capability — users frequently ask AI assistants to summarise or search their financial activity.
+**Why this priority**: Read-only account context is the safest and most frequent MCP use case. It must be private to the API key owner.
 
-**Independent Test**: A model can retrieve and filter transactions for a personal or business account, returning a paginated list with type, amount, counterparty, and timestamp, without any write tools present.
+**Independent Test**: Authenticate with User A's API key and retrieve User A's balance, transactions, and billers. Attempt to retrieve User B's data using the same session and confirm access is denied.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid account, **When** a model calls the list-transactions tool with no filters, **Then** it receives the 20 most recent transactions ordered by newest first.
-2. **Given** a valid account and a filter for transaction type (e.g., BILL_PAYMENT), **When** the tool is called, **Then** only transactions matching that type are returned.
-3. **Given** a valid account and a date range filter, **When** the tool is called, **Then** only transactions within that range are returned.
-4. **Given** an account with no transactions, **When** the tool is called, **Then** it returns an empty list with a clear indication that no transactions exist.
+1. **Given** a valid API-key-authenticated session, **When** the MCP client requests the account summary, **Then** it receives the authenticated user's name, username, phone number, balance, and account creation date.
+2. **Given** a valid session and an account with transactions, **When** the MCP client lists transactions without filters, **Then** it receives the most recent transactions first, including transaction IDs, types, amounts, balance-after values, timestamps, descriptions when present, and counterparties when present.
+3. **Given** a valid session and transaction filters for type or date range, **When** the MCP client lists transactions, **Then** only matching transactions for the authenticated user's own account are returned.
+4. **Given** a valid session and no transaction history, **When** the MCP client lists transactions, **Then** it receives an empty list with a zero count.
+5. **Given** a valid session, **When** the MCP client lists billers, **Then** it receives only billers saved for the authenticated user's personal account.
+6. **Given** no valid session token, **When** an MCP client requests account details, transactions, or billers, **Then** the request is rejected.
 
 ---
 
-### User Story 3 - Execute Personal Account Transfers (Priority: P2)
+### User Story 3 - Move Personal Funds (Priority: P2)
 
-An AI model needs to initiate a transfer of funds from one personal account to another so it can fulfil requests like "Transfer $50 to John."
+An API-key-authenticated MCP client deposits funds, withdraws funds, or transfers funds from the authenticated user's personal account to another personal account identified by phone number.
 
-**Why this priority**: Transfers are the most common write action users delegate to AI assistants. Placing it at P2 ensures read capabilities are solid first.
+**Why this priority**: Money movement is high value and high risk. It must be constrained to the authenticated user's own account and preserve the no-overdraft rule from core banking.
 
-**Independent Test**: A model can call the transfer tool with a source username, destination username, and amount, and the balances of both accounts update correctly with a corresponding transaction record created.
+**Independent Test**: Authenticate with a user's API key, perform a deposit, withdrawal, and transfer with valid amounts, then verify balances and immutable transaction records. Repeat with insufficient funds, invalid amounts, and another user's session to confirm rejection leaves balances unchanged.
 
 **Acceptance Scenarios**:
 
-1. **Given** two valid accounts with sufficient funds, **When** a model calls the transfer tool, **Then** the sender's balance decreases and the recipient's balance increases by the specified amount, and a TRANSFER_OUT and TRANSFER_IN transaction are recorded.
-2. **Given** an account with insufficient balance, **When** a model calls the transfer tool, **Then** no balance change occurs and an error describing the shortfall is returned.
-3. **Given** an invalid recipient username, **When** a model calls the transfer tool, **Then** no balance change occurs and a clear not-found error is returned.
-4. **Given** a transfer amount of zero or a negative number, **When** the tool is called, **Then** a validation error is returned.
+1. **Given** a valid API-key-authenticated session, **When** the MCP client deposits a positive amount, **Then** the authenticated user's balance increases by exactly that amount and a transaction record is created.
+2. **Given** a valid session and sufficient balance, **When** the MCP client withdraws a positive amount, **Then** the authenticated user's balance decreases by exactly that amount and a transaction record is created.
+3. **Given** a valid session and a valid recipient phone number, **When** the MCP client transfers a positive amount with an optional description, **Then** the sender balance decreases, the recipient balance increases, and both transaction records include the shared description when provided.
+4. **Given** a withdrawal or transfer amount greater than the available balance, **When** the MCP client submits the request, **Then** the operation is rejected and all balances remain unchanged.
+5. **Given** a zero, negative, non-numeric, or over-precise amount, **When** the MCP client submits a money movement request, **Then** validation fails before any account is changed.
+6. **Given** a recipient phone number that does not identify a registered personal account, **When** the MCP client submits a transfer, **Then** the transfer is rejected and no balances change.
+7. **Given** the authenticated user's own phone number as the transfer recipient, **When** the MCP client submits a transfer, **Then** the transfer is rejected.
 
 ---
 
-### User Story 4 - Deposit and Withdraw Funds (Priority: P2)
+### User Story 4 - Manage and Pay Personal Billers (Priority: P2)
 
-An AI model needs to deposit funds into or withdraw funds from a personal account to fulfil requests like "Deposit $200 into my account" or "Withdraw $100."
+An API-key-authenticated MCP client adds saved billers from the fixed billing categories, lists saved billers, and pays bills from the authenticated user's personal account.
 
-**Why this priority**: Deposits and withdrawals are common self-service operations that models should be able to handle on behalf of users.
+**Why this priority**: Bill payment is a common delegated banking task and depends on the fixed-category billing model.
 
-**Independent Test**: A model can call the deposit tool to increase a balance and the withdrawal tool to decrease it, with transaction records created for each operation.
+**Independent Test**: Authenticate with a user's API key, add a valid biller category and reference, list it, pay it with sufficient funds, and confirm the balance and transaction history update correctly. Repeat with duplicate billers, invalid categories, wrong biller ownership, and insufficient funds.
 
 **Acceptance Scenarios**:
 
-1. **Given** a valid account, **When** a model calls the deposit tool with a positive amount, **Then** the balance increases by that amount and a DEPOSIT transaction is recorded.
-2. **Given** a valid account with sufficient funds, **When** a model calls the withdrawal tool, **Then** the balance decreases by that amount and a WITHDRAWAL transaction is recorded.
-3. **Given** a withdrawal amount exceeding the current balance, **When** the tool is called, **Then** the operation is rejected and the balance remains unchanged.
+1. **Given** a valid API-key-authenticated session, **When** the MCP client adds a biller using one of the five predefined categories and a mandatory reference, **Then** the biller is saved to the authenticated user's personal account.
+2. **Given** a saved biller, **When** the MCP client lists billers, **Then** the biller appears with category, category display name, reference, and creation date.
+3. **Given** a duplicate category and reference for the same account, **When** the MCP client attempts to add the biller again, **Then** the request is rejected and no duplicate is saved.
+4. **Given** an invalid category or blank reference, **When** the MCP client attempts to add a biller, **Then** validation fails and no biller is saved.
+5. **Given** a valid session, saved biller, sufficient balance, and positive payment amount, **When** the MCP client pays the bill, **Then** the user's balance decreases and a bill payment transaction is recorded.
+6. **Given** a biller that does not belong to the authenticated user's account, **When** the MCP client attempts to pay it, **Then** the payment is rejected without revealing another user's biller details.
 
 ---
 
-### User Story 5 - Manage and Pay Bills (Priority: P2)
+### User Story 5 - Open a Personal Account Through MCP (Priority: P3)
 
-An AI model needs to retrieve saved billers and submit bill payments on behalf of a personal account user, supporting requests like "Pay my electricity bill" or "List my billers."
+A new customer can create a personal account through MCP by providing the same identity and contact details used by the web signup flow, including an optional initial balance for demo or setup purposes.
 
-**Why this priority**: Bill payments are a scheduled, recurring need that is well-suited to AI delegation.
+**Why this priority**: Signup is useful for demo and onboarding flows, but existing users with API keys receive the primary MCP value.
 
-**Independent Test**: A model can list all billers for an account, and then call the pay-bill tool to execute a bill payment, resulting in a BILL_PAYMENT transaction and an updated balance.
-
-**Acceptance Scenarios**:
-
-1. **Given** a valid account, **When** a model calls the list-billers tool, **Then** it receives all saved billers with their category, reference, and creation date.
-2. **Given** a valid account and a known biller reference, **When** a model calls the pay-bill tool with an amount, **Then** the balance decreases and a BILL_PAYMENT transaction is recorded.
-3. **Given** a biller reference that does not belong to the account, **When** the pay-bill tool is called, **Then** no payment is made and an error is returned.
-
----
-
-### User Story 6 - Manage Business Account Pending Transactions (Priority: P3)
-
-An AI model acting as an authoriser needs to list, approve, or reject pending business transactions so it can fulfil requests like "Show pending approvals" or "Approve the $5,000 transfer."
-
-**Why this priority**: Business approval workflows are critical but serve a narrower audience (authorisers and managers) than personal account operations.
-
-**Independent Test**: A model can list pending transactions for a business account, then approve or reject one, with the business account balance updating on approval and the pending transaction status changing accordingly.
+**Independent Test**: Create a personal account with unique username, email, and phone number, confirm the account exists with the requested starting balance, then confirm duplicate identity fields and invalid initial balances are rejected.
 
 **Acceptance Scenarios**:
 
-1. **Given** a business account with pending transactions, **When** a model calls the list-pending-transactions tool, **Then** it receives all PENDING transactions with type, amount, counterparty, and creation date.
-2. **Given** a PENDING transaction ID, **When** a model calls the approve-transaction tool, **Then** the transaction status changes to APPROVED, the business balance updates, and a BusinessTransaction record is created.
-3. **Given** a PENDING transaction ID, **When** a model calls the reject-transaction tool with an optional reason, **Then** the transaction status changes to REJECTED and the balance remains unchanged.
-4. **Given** a transaction that is already APPROVED, **When** a model calls approve-transaction, **Then** an error is returned indicating the transaction is no longer pending.
-
----
-
-### User Story 7 - User Login and Session Management (Priority: P1)
-
-A user must log in with their username and password before the MCP server will execute any write operation on their behalf. The model calls the login tool once per session; subsequent write tool calls use the returned session token instead of re-prompting for credentials.
-
-**Why this priority**: Without verified identity, any connected model could operate on any account. This is a hard prerequisite for safely deploying write tools.
-
-**Independent Test**: A model calls `login` with valid credentials and receives a session token. A subsequent `transfer_funds` call using that token succeeds. The same transfer call without a token, or with an expired token, is rejected before any balance changes.
-
-**Acceptance Scenarios**:
-
-1. **Given** a valid username and correct password, **When** a model calls `login`, **Then** it receives a short-lived session token tied to that user.
-2. **Given** a valid username and incorrect password, **When** a model calls `login`, **Then** it receives an authentication error and no token is issued.
-3. **Given** a non-existent username, **When** a model calls `login`, **Then** it receives an authentication error.
-4. **Given** a write tool call with a valid, unexpired session token, **When** the token's user matches the account being operated on, **Then** the operation executes normally.
-5. **Given** a write tool call with an expired or invalid session token, **When** the server receives the request, **Then** it returns a session-expired error and does not execute the operation.
-6. **Given** a write tool call where the token belongs to User A but the target account belongs to User B, **When** the server validates the request, **Then** it returns an authorisation error.
-7. **Given** a valid session token for the assigned authoriser, **When** `approve_transaction` or `reject_transaction` is called, **Then** the operation executes. For any other user's token, an authorisation error is returned.
-8. **Given** a read-only tool call (`get_account`, `list_transactions`, etc.), **When** it is made without a session token, **Then** it executes normally — read tools do not require authentication.
+1. **Given** a new customer with unique signup details, **When** the MCP client creates a personal account, **Then** the account is created with the submitted name, username, email, phone number, password, and starting balance.
+2. **Given** the optional initial balance is omitted or explicitly zero, **When** the account is created, **Then** the account starts with a zero balance.
+3. **Given** the optional initial balance is positive and valid, **When** the account is created, **Then** the account starts with that balance.
+4. **Given** a username, email, or phone number already used by another account, **When** the MCP client attempts signup, **Then** signup is rejected with a clear error and no duplicate account is created.
+5. **Given** an invalid phone number, weak password, negative initial balance, or non-numeric initial balance, **When** the MCP client attempts signup, **Then** signup is rejected with a clear validation error.
+6. **Given** a newly created personal account, **When** the user wants to use authenticated MCP tools, **Then** they must first create an API key for that account through the account API-key feature.
 
 ---
 
 ### Edge Cases
 
-- What happens when a model calls a write tool (transfer, deposit, withdrawal, bill payment) with an amount that has more than two decimal places?
-- How does the server handle concurrent calls that could cause a race condition on the same account balance?
-- What happens when a model provides a negative transfer amount disguised as a positive one?
-- How does the server respond when the banking app's database is unreachable?
-- What happens when a business account has no assigned authoriser and an approve/reject action is attempted?
-- What happens when a write tool is called without a `session_token` parameter?
-- What happens if a model reuses an expired token multiple times — does the server issue a distinct "please re-login" message?
+- What happens when an API key is revoked while an MCP session created by that key is still active?
+- What happens when an MCP client attempts username-and-password login after API-key-only login is enforced?
+- What happens when a protected personal account tool is called with no session token, an expired token, or a token created from a revoked API key?
+- What happens when a client tries to target another user's account by passing another username, account ID, phone number, biller ID, or transaction filter?
+- What happens when a model requests a business account tool such as business lookup, business transaction history, pending approvals, approval, rejection, or business signup?
+- What happens when a deposit, withdrawal, transfer, or bill payment amount is zero, negative, non-numeric, or has more than two decimal places?
+- What happens when a withdrawal, transfer, or bill payment would reduce the authenticated user's balance below zero?
+- What happens when a transfer recipient does not exist or matches the sender's own phone number?
+- What happens when a transfer description exceeds the allowed length?
+- What happens when an add-biller request uses an unsupported category, omits the reference, or duplicates an existing category and reference for the same account?
+- What happens when personal signup submits duplicate username, email, or phone number values?
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-- **FR-001**: The MCP server MUST expose a `get_account` tool that returns personal account details (holder name, balance, creation date) given a username.
-- **FR-002**: The MCP server MUST expose a `get_business_account` tool that returns business account details (company name, UEN, address, balance, manager) given a UEN or company name.
-- **FR-003**: The MCP server MUST expose a `list_transactions` tool that returns paginated transactions for a personal account, with optional filters for transaction type and date range.
-- **FR-004**: The MCP server MUST expose a `list_business_transactions` tool that returns paginated transactions for a business account, with optional filters for transaction type and date range.
-- **FR-005**: The MCP server MUST expose a `transfer_funds` tool that moves a specified amount from one personal account to another, recording TRANSFER_OUT and TRANSFER_IN transactions.
-- **FR-006**: The MCP server MUST expose a `deposit_funds` tool that adds a specified amount to a personal account balance and records a DEPOSIT transaction.
-- **FR-007**: The MCP server MUST expose a `withdraw_funds` tool that deducts a specified amount from a personal account balance and records a WITHDRAWAL transaction.
-- **FR-008**: The MCP server MUST expose a `list_billers` tool that returns all saved billers for a personal account.
-- **FR-009**: The MCP server MUST expose a `pay_bill` tool that executes a bill payment from a personal account to a named biller, recording a BILL_PAYMENT transaction.
-- **FR-010**: The MCP server MUST expose a `list_pending_transactions` tool that returns all PENDING transactions for a business account.
-- **FR-011**: The MCP server MUST expose an `approve_transaction` tool that changes a PENDING business transaction to APPROVED and executes the corresponding balance change.
-- **FR-012**: The MCP server MUST expose a `reject_transaction` tool that changes a PENDING business transaction to REJECTED without affecting the balance.
-- **FR-013**: All write tools (transfer, deposit, withdrawal, bill payment, approve, reject) MUST validate that amounts are positive and have at most two decimal places before executing.
-- **FR-014**: All tools MUST return structured error responses with a human-readable message when an operation fails (account not found, insufficient funds, invalid input, etc.).
-- **FR-015**: The MCP server MUST operate as a stateless request handler — it does not store sessions or user state between tool calls.
-- **FR-016**: The MCP server MUST expose a `login` tool that accepts a username and password; on success it returns a short-lived session token, on failure it returns an authentication error with no token.
-- **FR-017**: All write tools MUST accept a `session_token` parameter; the server MUST validate the token before executing the operation and reject expired or invalid tokens.
-- **FR-018**: All write tools MUST verify that the authenticated user (identified by the session token) is authorised to operate on the target account — users may only act on their own accounts.
-- **FR-019**: The `approve_transaction` and `reject_transaction` tools MUST verify that the session token belongs to the assigned authoriser for the relevant business account before executing.
-- **FR-020**: Read-only tools (`get_account`, `get_business_account`, `list_transactions`, `list_business_transactions`, `list_billers`, `list_pending_transactions`) do NOT require a session token.
-- **FR-022**: The `create_personal_account` and `create_business_account` tools do NOT require a session token — they are open signup operations available to unauthenticated callers.
-- **FR-023**: The MCP server MUST expose a `create_personal_account` tool that accepts a username, password, and an optional initial deposit (minimum 0.00, defaults to 0); on success it returns the created account details.
-- **FR-024**: The MCP server MUST expose a `create_business_account` tool that accepts a business name, UEN, address (street, city, postal code), and an optional initial deposit (minimum 7,000); on success it atomically creates the business account, one account manager user, and one authoriser user (credentials auto-generated from business name, matching the web app pattern), and returns all three sets of details including the generated credentials. The initial deposit MUST be recorded as a deposit transaction.
-- **FR-025**: `create_business_account` MUST reject creation if the initial deposit is below 7,000, returning a clear validation error. The business account balance MUST remain ≥ 7,000 at all times (consistent with FR from 003-business-account).
-- **FR-026**: `create_business_account` MUST reject creation if the submitted UEN already exists, returning a clear duplication error.
-- **FR-027**: The MCP server MUST expose an `add_biller` tool that accepts a `session_token`, `category` (one of: Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance), and `reference` (mandatory, unique per account + category); on success it returns the saved biller details.
-- **FR-028**: `add_biller` MUST reject the request if the category is not one of the five predefined values, returning a validation error.
-- **FR-029**: `add_biller` MUST reject the request if a biller with the same category and reference already exists for that account, returning a clear duplication error.
-- **FR-021**: Session tokens MUST expire after a defined period of inactivity; the server MUST return a clear session-expired error when a stale token is used.
+- **FR-001**: The MCP server MUST expose a `login_with_api_key` tool that accepts an API key and, on success, returns a short-lived session token for the owning user.
+- **FR-002**: The MCP server MUST reject invalid, malformed, expired, or revoked API keys with a generic authentication error and MUST NOT create a session.
+- **FR-003**: The MCP server MUST NOT expose or support username-and-password MCP login.
+- **FR-004**: Session tokens issued by API-key login MUST expire after a defined period of inactivity.
+- **FR-005**: Protected tool calls using API-key-backed sessions MUST confirm the backing API key remains active before returning private data or performing any write.
+- **FR-006**: All tools that read or modify an existing personal account MUST require a valid API-key-authenticated session token.
+- **FR-007**: Protected personal account tools MUST operate only on the personal account owned by the authenticated session user.
+- **FR-008**: The MCP server MUST NOT expose business account tools, including business account lookup, business transaction history, pending transaction listing, approval, rejection, or business account creation.
+- **FR-009**: The MCP server MUST expose a protected `get_account` tool that returns the authenticated user's personal account details, including username, name, phone number, balance, and account creation date.
+- **FR-010**: The MCP server MUST expose a protected `list_transactions` tool that returns the authenticated user's personal transactions ordered newest first, with optional filters for transaction type and date range.
+- **FR-011**: Transaction results MUST include transaction ID, type, amount, balance after the transaction, timestamp, description when present, and counterparty identity when present.
+- **FR-012**: The MCP server MUST expose a protected `deposit_funds` tool that deposits a positive amount into the authenticated user's personal account and records an immutable transaction.
+- **FR-013**: The MCP server MUST expose a protected `withdraw_funds` tool that withdraws a positive amount from the authenticated user's personal account and records an immutable transaction.
+- **FR-014**: The MCP server MUST reject any withdrawal that would reduce the authenticated user's balance below zero.
+- **FR-015**: The MCP server MUST expose a protected `transfer_funds` tool that transfers a positive amount from the authenticated user's personal account to another personal account identified by phone number.
+- **FR-016**: The MCP server MUST reject transfers to non-existent recipients and transfers to the sender's own account.
+- **FR-017**: The MCP server MUST reject any transfer that would reduce the sender's balance below zero.
+- **FR-018**: Transfer descriptions MUST be optional, limited to the existing transfer description length, and recorded on both sender and recipient transaction records when provided.
+- **FR-019**: The MCP server MUST expose a protected `list_billers` tool that returns only the authenticated user's saved personal billers.
+- **FR-020**: The MCP server MUST expose a protected `add_biller` tool that accepts one of the five predefined billing categories and a mandatory reference.
+- **FR-021**: The valid biller categories MUST be Electricity, Water & Utilities, Internet & Broadband, Telecommunications, and Town Council / Maintenance.
+- **FR-022**: The MCP server MUST reject add-biller requests with unsupported categories, blank references, or duplicate category-and-reference pairs for the authenticated user's account.
+- **FR-023**: The MCP server MUST expose a protected `pay_bill` tool that pays one of the authenticated user's saved billers with a positive amount and records an immutable bill payment transaction.
+- **FR-024**: The MCP server MUST reject bill payments for billers that do not belong to the authenticated user's account.
+- **FR-025**: The MCP server MUST reject bill payments that would reduce the authenticated user's balance below zero.
+- **FR-026**: All money amounts accepted by MCP tools MUST be exact decimal values with no more than two decimal places.
+- **FR-027**: All deposit, withdrawal, transfer, and bill payment requests MUST reject zero, negative, non-numeric, and over-precise amounts before changing account state.
+- **FR-028**: Any failed validation, authentication, authorisation, insufficient-funds, or not-found result MUST leave balances, billers, and transactions unchanged.
+- **FR-029**: All tool failures MUST return structured error responses with enough context for an MCP client to explain the failure safely.
+- **FR-030**: The MCP server MUST expose an open `create_personal_account` tool that accepts name, username, email, phone number, password, and optional initial balance.
+- **FR-031**: Personal account creation MUST enforce username, email, and phone number uniqueness, phone-number format rules, and password-strength rules consistent with the account signup feature.
+- **FR-032**: Personal account creation MUST default the starting balance to zero when the initial balance is omitted or explicitly zero.
+- **FR-033**: Personal account creation MUST reject negative, non-numeric, or over-precise initial balances and MUST NOT create a partial account on failure.
+- **FR-034**: Personal account creation MUST NOT create or return an API key; API-key lifecycle and one-time key display remain governed by the API-key authentication feature.
 
 ### Key Entities
 
-- **PersonalAccount**: A user's monetary account; has one balance, one owner, and a history of transactions.
-- **BusinessAccount**: A company's monetary account; has a balance, a UEN, an address, an account manager, an authoriser, and a history of transactions and pending transactions.
-- **Transaction**: An immutable record of a balance-changing event on a personal account (deposit, withdrawal, transfer, bill payment).
-- **BusinessTransaction**: An immutable record of an executed or rejected event on a business account.
-- **PendingTransaction**: A queued outgoing action on a business account awaiting authoriser approval or rejection.
-- **Biller**: A saved payee reference linked to a personal account for recurring bill payments. Has a `category` (one of 5 predefined values) and a `reference` (unique per account + category). No free-text name field.
+- **User**: A person who owns a personal banking account and may create API keys for MCP authentication. Identified by a unique username, email address, and phone number.
+- **Personal Account**: The authenticated user's monetary account. Holds a balance, belongs to exactly one user, and must never become negative.
+- **Account API Key**: A user-owned MCP credential that can create an authenticated MCP session without sharing the user's password.
+- **Authenticated MCP Session**: A short-lived session created only through API-key login. It represents one user and authorises tools only for that user's personal account.
+- **Transaction**: An immutable record of a personal account money movement, including transaction ID, type, amount, timestamp, balance after the transaction, optional description, and optional counterparty.
+- **Biller**: A saved payee reference belonging to one personal account. It has one of the five fixed billing categories and a mandatory reference unique within the same account and category.
+- **Bill Payment**: A completed payment from a personal account to one of that account's saved billers, represented in transaction history as a bill payment transaction.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: Each tool call returns a response in under 2 seconds under normal operating conditions.
-- **SC-002**: All 16 tools (12 read/write originals + `login` + `create_personal_account`, `create_business_account`, `add_biller`) are callable and return correct results for valid inputs 100% of the time in the test suite.
-- **SC-003**: All write operations that fail validation leave the account balance unchanged — verified by before/after balance checks in tests.
-- **SC-004**: An AI model with access only to these tools can answer at least 90% of common banking queries (balance lookup, transaction history, transfer, bill payment) without requiring direct database or UI access.
-- **SC-005**: All tool error responses include enough context for the calling model to relay a meaningful message to the user without additional lookups.
-
-## Clarifications
-
-### Session 2026-05-26
-
-- Q: Who is allowed to call `create_personal_account` and `create_business_account`? → A: Unauthenticated — no session token required (open signup)
-- Q: What should the starting balance be when a new personal or business account is created? → A: Caller provides an optional initial deposit; personal account minimum is 0.00 (defaults to 0), business account minimum is 7,000 (inclusive, per 003-business-account spec)
-- Q: What fields are required when adding a biller? → A: `category` (one of 5 predefined values: Electricity, Water & Utilities, Internet & Broadband, Telecommunications, Town Council / Maintenance) and `reference` (mandatory, unique per account + category); no free-text name field (per 004-billing-system spec)
-- Q: Should `add_biller` require a session token? → A: Yes — consistent with all other write tools
-- Q: Should `create_business_account` auto-create manager and authoriser users and return their credentials? → A: Yes — mirrors the web app; creates manager + authoriser atomically and returns generated credentials in the response
+- **SC-001**: 100% of MCP sessions are created through valid active API keys; username-and-password MCP login creates zero sessions.
+- **SC-002**: 100% of invalid, malformed, expired, or revoked API keys are rejected without returning private account data or changing balances, billers, or transactions.
+- **SC-003**: 100% of protected account reads and writes are scoped to the authenticated user's own personal account.
+- **SC-004**: The MCP tool list contains no business account tools, and business account operations are unavailable through this feature.
+- **SC-005**: All 10 supported personal MCP tools (`create_personal_account`, `login_with_api_key`, `get_account`, `list_transactions`, `list_billers`, `deposit_funds`, `withdraw_funds`, `transfer_funds`, `add_biller`, and `pay_bill`) return correct results for valid inputs.
+- **SC-006**: 100% of failed money movement and bill payment attempts leave balances and transaction history unchanged.
+- **SC-007**: 100% of successful money movement and bill payment actions create immutable transaction records with transaction IDs and accurate balance-after values.
+- **SC-008**: Transaction history returned through MCP includes counterparty and description data for all applicable transfers.
+- **SC-009**: Users can authenticate with an API key and complete a common read-only query, such as checking balance or listing recent transactions, in under 2 seconds under normal operating conditions.
 
 ## Assumptions
 
-- The MCP server communicates directly with the banking app's existing data layer (same database); it does not call the app's HTTP endpoints.
-- Session tokens are short-lived; the specific expiry duration is a configuration detail left to implementation.
-- The `login` tool validates credentials against the banking app's existing user store — no separate user database is introduced.
-- Token storage (in-memory, database, cache) is an implementation detail; the spec only requires that tokens expire and are validated on every write call.
-- The server handles one request at a time per tool call; concurrent safety is delegated to the database's existing transaction mechanisms.
-- Mobile or multi-platform MCP client support is out of scope; the server targets desktop and server-based AI agent environments.
-- The `transfer_funds` tool only supports transfers between two personal accounts; business-to-personal and business-to-business transfers follow the pending transaction approval workflow.
+- API key creation, revocation, one-time secret display, and audit activity are defined by `specs/007-mcp-api-key-auth/`; this MCP spec consumes that authentication capability rather than redefining the key management UI.
+- Personal banking behavior follows the core banking requirements: one personal account per user, exact monetary values, no overdrafts, phone-number recipient lookup, and immutable transaction history.
+- Transfer descriptions follow the UX enhancement requirement: optional plain text with the existing maximum length and visible in both parties' transaction history.
+- Billers follow the billing system requirements: five fixed categories, mandatory reference, and uniqueness per personal account plus category.
+- The personal account signup tool is unauthenticated because it creates a new account; authenticated access to existing account data still requires an API key.
+- Business accounts, manager submissions, authoriser approvals, pending transactions, and business account creation remain outside this MCP feature.
+- API keys are accepted only for MCP authentication and are not accepted for interactive web sign-in.
+- The MCP server targets local or trusted-client banking assistant integrations and does not integrate with external banks, card networks, or payment processors.

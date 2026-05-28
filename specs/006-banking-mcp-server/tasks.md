@@ -1,243 +1,191 @@
-# Tasks: Banking MCP Server
+# Tasks: Personal Banking MCP Server
 
-**Input**: Design documents from `specs/006-banking-mcp-server/`
-**Prerequisites**: plan.md ✅, spec.md ✅, data-model.md ✅, contracts/tool-schemas.md ✅, research.md ✅, quickstart.md ✅
+**Input**: Design documents from `/specs/006-banking-mcp-server/`
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
 
-**Tests**: Required — Principle II (Test-First / Red-Green-Refactor) is NON-NEGOTIABLE per constitution. Write tests first, confirm they FAIL, then implement.
+**Tests**: Required. The implementation plan keeps the project under a test-first gate, so each story includes failing test tasks before implementation.
 
-**Organization**: Tasks grouped by user story to enable independent implementation and testing.
-
-**Status**: 13 of 16 tools implemented and tested. Remaining: `add_biller` (US5 extension), `create_personal_account` and `create_business_account` (US8 — from clarifications 2026-05-26, FR-022 to FR-026).
+**Organization**: Tasks are grouped by user story to enable independent implementation and testing. The overhauled `spec.md` is authoritative where older 006 design artifacts still mention business tools or username/password MCP login.
 
 ## Format: `[ID] [P?] [Story] Description`
 
-- **[P]**: Can run in parallel (different files, no dependencies)
-- **[Story]**: Which user story this task belongs to (US1–US8)
+- **[P]**: Can run in parallel (different files, no dependencies on incomplete tasks)
+- **[Story]**: Which user story this task belongs to (US1-US5)
 - Include exact file paths in every task description
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup (Shared Documentation and Dependencies)
 
-**Purpose**: Create the `mcp_server/` Python package skeleton and install the MCP dependency.
+**Purpose**: Align the remaining 006 design artifacts with the overhauled personal-account-only, API-key-only spec before implementation starts.
 
-- [x] T001 Create mcp_server/ package: touch mcp_server/__init__.py, mcp_server/server.py, mcp_server/auth.py, mcp_server/utils.py, mcp_server/tests/__init__.py
-- [x] T002 Add `mcp[cli]>=1.9,<2` to requirements.txt
-- [x] T003 Create mcp_server/tests/conftest.py: add `django_db_setup` marker, and fixtures `db_user` (CustomUser + Account), `db_business` (BusinessAccount + AccountManagerProfile + Authoriser), `db_biller` (Biller linked to db_user's account)
+- [X] T001 Update `specs/006-banking-mcp-server/plan.md` so the summary, tool count, project structure, implementation guide, and test plan describe only the 10 supported personal MCP tools and API-key-only login.
+- [X] T002 [P] Update `specs/006-banking-mcp-server/data-model.md` to remove business-account entities and describe `accounts.CustomUser`, `accounts.AccountAPIKey`, `banking.Account`, `banking.Transaction`, `banking.Biller`, and API-key-backed session records.
+- [X] T003 [P] Update `specs/006-banking-mcp-server/contracts/tool-schemas.md` to remove business tools and username/password login, make all existing-account reads protected by `session_token`, and define the 10 personal tool contracts from `specs/006-banking-mcp-server/spec.md`.
+- [X] T004 [P] Update `specs/006-banking-mcp-server/quickstart.md` to show API-key login sequences, protected account reads, personal signup, personal transfers by phone number, biller management, and no business-account examples.
+- [X] T005 Verify `mcp[cli]>=1.9,<2` remains declared in `requirements.txt` and update `requirements.txt` only if the dependency is missing.
 
-**Checkpoint**: `pytest mcp_server/tests/ -v` collects 0 tests without import errors.
+**Checkpoint**: 006 docs no longer instruct implementers to expose business MCP tools, public account reads, or username/password MCP login.
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Auth infrastructure, amount validation helper, and the FastMCP server skeleton. Every user story phase depends on this being complete.
+**Purpose**: Establish shared fixtures, token validation, and tool-surface cleanup that every user story depends on.
 
-**⚠️ CRITICAL**: No user story work begins until this phase is complete.
+**CRITICAL**: No user story implementation should begin until this phase is complete.
 
-- [x] T004 Write failing tests for TokenStore: issue_token returns a 64-char hex string; validate_token returns username on fresh token; validate_token raises SessionExpiredError when last_used > timeout; _purge_expired removes expired entries in mcp_server/tests/test_auth.py
-- [x] T005 Implement TokenStore (issue_token, validate_token, _purge_expired) and SessionExpiredError in mcp_server/auth.py — makes T004 green
-- [x] T006 [P] Write failing tests for _mcp_validate_amount: "50.00" → Decimal("50.00"); "0" → ValueError; "-1.00" → ValueError; "10.001" → ValueError; "abc" → ValueError in mcp_server/tests/test_auth.py
-- [x] T007 [P] Implement _mcp_validate_amount(amount: str) -> Decimal in mcp_server/utils.py: parse with Decimal, reject <= 0 and != quantize("0.01") — makes T006 green
-- [x] T008 [P] Create FastMCP("banking") instance and global token_store = TokenStore() in mcp_server/server.py (no @mcp.tool() registrations yet)
-- [x] T009 Implement mcp_server/__init__.py: os.environ.setdefault DJANGO_SETTINGS_MODULE → "banking_app.settings", django.setup(), import mcp from mcp_server.server, define main() calling mcp.run() and if __name__ == "__main__" guard
+- [X] T006 Add API-key test fixtures and helpers for authenticated MCP sessions, revoked keys, a second user, and seeded balances in `mcp_server/tests/conftest.py`.
+- [X] T007 Update TokenStore tests in `mcp_server/tests/test_auth.py` to cover API-key-backed token issue, expiry, missing token rejection, revoked backing key rejection, and removal of password-auth token expectations.
+- [X] T008 Implement API-key-only session token records in `mcp_server/auth.py`, requiring an API key identifier for issued MCP sessions and rejecting revoked backing keys on every protected validation.
+- [X] T009 Replace obsolete business-tool behavior tests in `mcp_server/tests/test_business.py` with absence tests proving `get_business_account`, `list_business_transactions`, `list_pending_transactions`, `approve_transaction`, `reject_transaction`, and `create_business_account` are not registered MCP tools.
+- [X] T010 Remove business model imports, business helper functions, business tool registrations, and username/password login registration from `mcp_server/server.py`.
+- [X] T011 Add shared server helpers in `mcp_server/server.py` for validating `session_token`, resolving the authenticated user's personal `Account`, and returning structured session or authorisation errors.
+- [X] T012 Run foundational checks for `mcp_server/tests/test_auth.py` and `mcp_server/tests/test_business.py`, keeping failing story-specific tests for later phases.
 
-**Checkpoint**: `python -c "import mcp_server"` completes without error; all T004 and T006 tests are green.
-
----
-
-## Phase 3: User Story 7 — User Login and Session Management (Priority: P1) 🔐
-
-**Goal**: Models can authenticate with username + password and receive a short-lived session token. Write tools reject missing, expired, or wrong-owner tokens.
-
-**Independent Test**: `login("alice", correct_password)` → `{"session_token": ..., "expires_in_minutes": 15}`; `login("alice", wrong_password)` → `{"error": "Authentication failed."}` with no token.
-
-### Tests for US7
-
-> **Write these FIRST — confirm they FAIL before touching the login tool**
-
-- [x] T010 [US7] Write failing tests for login tool: valid creds → session_token (64 hex chars) + expires_in_minutes=15; wrong password → {"error": "Authentication failed."}; unknown username → same generic error (no token) in mcp_server/tests/test_auth.py
-
-### Implementation for US7
-
-- [x] T011 [US7] Implement login tool in mcp_server/server.py: use django.contrib.auth.authenticate(username, password), on success call token_store.issue_token(username) and return {"session_token": token, "expires_in_minutes": MCP_SESSION_TIMEOUT_MINUTES}, on failure return {"error": "Authentication failed."} — makes T010 green
-
-**Checkpoint**: Login tool fully functional; T010 all green; `python -m mcp_server` starts without error.
+**Checkpoint**: The MCP package has an API-key-only personal-account foundation and no registered business tools.
 
 ---
 
-## Phase 4: User Story 1 — Query Account Information (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 - Authenticate MCP Client With API Key (Priority: P1) MVP
 
-**Goal**: Models can retrieve personal and business account details without a session token.
+**Goal**: MCP clients can create sessions only through valid active API keys; username/password MCP login is unavailable.
 
-**Independent Test**: `get_account(username="alice")` returns balance, holder name, and created_at. `get_business_account(identifier="202312345A")` returns company_name, UEN, address, balance, manager, and authoriser. Unknown identifiers return clear error dicts.
+**Independent Test**: Use a valid active API key to receive a session token, then confirm invalid, malformed, revoked, expired, and password-login attempts do not create usable MCP sessions.
 
-### Tests for US1
+### Tests for User Story 1
 
-> **Write these FIRST — confirm they FAIL before implementing get_account / get_business_account**
+> Write these tests first and confirm they fail before implementation.
 
-- [x] T012 [P] [US1] Write failing tests for get_account: valid username → {username, name, balance as string, created_at ISO8601}; non-existent username → {"error": "..."}; no session_token required (call without one succeeds) in mcp_server/tests/test_accounts.py
-- [x] T013 [P] [US1] Write failing tests for get_business_account: valid UEN → full business dict; valid company_name (case-insensitive) → same; unknown identifier → error dict in mcp_server/tests/test_accounts.py
+- [X] T013 [P] [US1] Update `mcp_server/tests/test_api_key_auth.py` with failing tests for valid `login_with_api_key`, invalid key rejection, malformed key rejection, revoked key rejection, and safe generic authentication errors.
+- [X] T014 [P] [US1] Update `mcp_server/tests/test_api_key_auth.py` with failing tests that a session created from a revoked API key is rejected by a protected tool before returning private data or changing balances.
+- [X] T015 [P] [US1] Update `mcp_server/tests/test_api_key_auth.py` with failing tests that `login` is not importable or registered from `mcp_server/server.py` and that username/password credentials cannot create an MCP session.
 
-### Implementation for US1
+### Implementation for User Story 1
 
-- [x] T014 [P] [US1] Implement get_account tool in mcp_server/server.py: User.objects.get(username=...), return account fields with str(balance) and created_at.isoformat(); catch DoesNotExist and return error dict — makes T012 green
-- [x] T015 [P] [US1] Implement get_business_account tool in mcp_server/server.py: try BusinessAccount by uen first, then company_name__iexact; return all fields including manager and authoriser sub-dicts; catch DoesNotExist — makes T013 green
+- [X] T016 [US1] Implement `login_with_api_key(api_key: str)` as the only MCP login tool in `mcp_server/server.py`, returning `session_token`, `expires_in_minutes`, `username`, `auth_method`, and safe key identifier metadata on success.
+- [X] T017 [US1] Ensure `mcp_server/server.py` catches API key authentication failures from `accounts/api_keys.py` and returns only `{"error": "Authentication failed."}`.
+- [X] T018 [US1] Ensure `mcp_server/auth.py` purges expired tokens and rejects API-key-backed sessions whose `accounts.AccountAPIKey` record is revoked before protected tool execution.
+- [X] T019 [US1] Run `pytest mcp_server/tests/test_api_key_auth.py mcp_server/tests/test_auth.py -v` and make US1 tests pass.
 
-**Checkpoint**: Account query tools return correct data for all acceptance scenarios; T012/T013 all green.
-
----
-
-## Phase 5: User Story 2 — Browse Transaction History (Priority: P1)
-
-**Goal**: Models can retrieve and filter paginated transaction history for personal and business accounts without a session token.
-
-**Independent Test**: `list_transactions(username="alice")` returns the 20 newest transactions newest-first. `list_transactions(username="alice", transaction_type="BILL_PAYMENT")` returns only bill payments. An account with no transactions returns `{"transactions": [], "count": 0}`.
-
-### Tests for US2
-
-> **Write these FIRST — confirm they FAIL before implementing list_transactions / list_business_transactions**
-
-- [x] T016 [P] [US2] Write failing tests for list_transactions: no filter → 20 newest ordered by timestamp desc; transaction_type filter applied correctly; date_from/date_to filter applied correctly; limit capped at 100; account with no transactions → count=0 in mcp_server/tests/test_transactions.py
-- [x] T017 [P] [US2] Write failing tests for list_business_transactions: same filter permutations; response shape does NOT include counterparty_username field in mcp_server/tests/test_transactions.py
-
-### Implementation for US2
-
-- [x] T018 [P] [US2] Implement list_transactions tool in mcp_server/server.py: look up Account via User, filter Transaction queryset by account, optional transaction_type, date_from/date_to (timestamp__date gte/lte), apply limit (default 20, max 100), return list of dicts with amount/balance_after as strings and timestamp as isoformat — makes T016 green
-- [x] T019 [P] [US2] Implement list_business_transactions tool in mcp_server/server.py: resolve BusinessAccount by UEN or company_name__iexact, filter BusinessTransaction with same optional params, exclude counterparty_username from response — makes T017 green
-
-**Checkpoint**: Transaction listing with all filters works for both account types; T016/T017 all green.
+**Checkpoint**: User Story 1 is fully functional and independently testable.
 
 ---
 
-## Phase 6: User Story 3 — Execute Personal Account Transfers (Priority: P2)
+## Phase 4: User Story 2 - Query Own Personal Account Information (Priority: P1)
 
-**Goal**: Models can transfer funds between personal accounts atomically using a valid session token.
+**Goal**: An API-key-authenticated session can read only the owning user's personal account summary, transactions, and billers.
 
-**Independent Test**: `transfer_funds(from_username="alice", to_username="bob", amount="50.00", session_token=<valid>)` deducts 50.00 from alice and adds 50.00 to bob with both Transaction records created. Insufficient funds, expired token, and wrong-owner token are all rejected before any DB change.
+**Independent Test**: Authenticate as User A, retrieve User A's account summary, transactions, and billers, then confirm no valid path returns User B's private account data.
 
-### Tests for US3
+### Tests for User Story 2
 
-> **Write these FIRST — confirm they FAIL before implementing transfer_funds**
+> Write these tests first and confirm they fail before implementation.
 
-- [x] T020 [US3] Write failing tests for transfer_funds: valid transfer → {"sender_new_balance": str, "out_transaction_id": int, "in_transaction_id": int}; insufficient funds → error, both balances unchanged; unknown recipient → error; expired session_token → session error; token owner != from_username → not-authorised error; amount="0" → validation error; amount="10.001" → validation error in mcp_server/tests/test_transfers.py
+- [X] T020 [P] [US2] Rewrite `mcp_server/tests/test_accounts.py` for protected `get_account(session_token)` success, missing-token rejection, revoked-token rejection, inclusion of phone number, and no username-targeting parameter.
+- [X] T021 [P] [US2] Rewrite `mcp_server/tests/test_transactions.py` for protected `list_transactions(session_token, transaction_type=None, date_from=None, date_to=None, limit=20)` success, filters, newest-first ordering, empty history, limit cap, and missing-token rejection.
+- [X] T022 [P] [US2] Update `mcp_server/tests/test_bills.py` list-biller tests for protected `list_billers(session_token)` success, empty list, missing-token rejection, revoked-token rejection, and no access to another user's billers.
 
-### Implementation for US3
+### Implementation for User Story 2
 
-- [x] T021 [US3] Implement transfer_funds tool in mcp_server/server.py: call _mcp_validate_amount, then token_store.validate_token, verify token owner == from_username, look up recipient User by to_username, extract phone_number, call banking.services.transfer(sender_account, recipient_phone, amount, description), return balances and transaction IDs as dict; catch SessionExpiredError, PermissionError, InsufficientFundsError, DoesNotExist — makes T020 green
+- [X] T023 [US2] Implement protected `get_account(session_token: str)` in `mcp_server/server.py`, returning the authenticated user's username, name, phone number, balance, and account creation date.
+- [X] T024 [US2] Implement protected `list_transactions(session_token: str, transaction_type: str = None, date_from: str = None, date_to: str = None, limit: int = 20)` in `mcp_server/server.py`, scoped to the authenticated user's account.
+- [X] T025 [US2] Ensure transaction serialization in `mcp_server/server.py` includes transaction ID, type, amount, balance_after, timestamp, description, and counterparty identity where present.
+- [X] T026 [US2] Implement protected `list_billers(session_token: str)` in `mcp_server/server.py`, scoped to the authenticated user's account and returning category, display name, reference, and creation date.
+- [X] T027 [US2] Remove obsolete business-read imports and assertions from `mcp_server/tests/test_accounts.py` and `mcp_server/tests/test_transactions.py`.
+- [X] T028 [US2] Run `pytest mcp_server/tests/test_accounts.py mcp_server/tests/test_transactions.py mcp_server/tests/test_bills.py::TestListBillers -v` and make US2 tests pass.
 
-**Checkpoint**: transfer_funds fully functional with auth and validation guards; T020 all green.
-
----
-
-## Phase 7: User Story 4 — Deposit and Withdraw Funds (Priority: P2)
-
-**Goal**: Models can deposit into or withdraw from a personal account; both operations require a valid session token whose owner matches the account.
-
-**Independent Test**: `deposit_funds(username="alice", amount="200.00", session_token=<valid>)` increases alice's balance by 200.00 and creates a DEPOSIT transaction. `withdraw_funds` with insufficient funds is rejected and the balance is unchanged.
-
-### Tests for US4
-
-> **Write these FIRST — confirm they FAIL before implementing deposit_funds / withdraw_funds**
-
-- [x] T022 [P] [US4] Write failing tests for deposit_funds: valid deposit → {"new_balance": str, "transaction_id": int}; zero amount → validation error; expired token → session error; non-existent account → error in mcp_server/tests/test_transfers.py
-- [x] T023 [P] [US4] Write failing tests for withdraw_funds: valid withdrawal → {"new_balance": str, "transaction_id": int}; insufficient funds → error, balance unchanged; wrong-owner token → not-authorised error; expired token → session error; negative amount → validation error in mcp_server/tests/test_transfers.py
-
-### Implementation for US4
-
-- [x] T024 [P] [US4] Implement deposit_funds tool in mcp_server/server.py: _mcp_validate_amount, validate_token, verify owner == username, look up Account, call banking.services.deposit(account, amount), return {"new_balance": str(account.balance), "transaction_id": txn.id} — makes T022 green
-- [x] T025 [P] [US4] Implement withdraw_funds tool in mcp_server/server.py: same auth + owner check, call banking.services.withdraw(account, amount), return {"new_balance": str, "transaction_id": int}; catch InsufficientFundsError — makes T023 green
-
-**Checkpoint**: Deposit and withdrawal functional with overdraft guard and auth; T022/T023 all green.
+**Checkpoint**: User Story 2 is fully functional and independently testable.
 
 ---
 
-## Phase 8: User Story 5 — Manage and Pay Bills (Priority: P2)
+## Phase 5: User Story 3 - Move Personal Funds (Priority: P2)
 
-**Goal**: Models can list saved billers for a personal account, add new billers, and submit bill payments using a valid session token.
+**Goal**: An API-key-authenticated session can deposit, withdraw, and transfer from only the owning user's personal account without overdrafts.
 
-**Independent Test**: `list_billers(username="alice")` returns all billers (id, category, reference). `pay_bill(username="alice", biller_id=7, amount="100.00", session_token=<valid>)` reduces the balance and creates a BILL_PAYMENT transaction. `add_biller(username="alice", category="ELECTRICITY", reference="ACC-123", session_token=<valid>)` saves the biller and returns its details.
+**Independent Test**: Authenticate as a user, perform valid deposit, withdrawal, and transfer operations, verify immutable transaction records and balances, then confirm invalid amounts, insufficient funds, missing sessions, revoked sessions, missing recipients, and self-transfers leave balances unchanged.
 
-### Completed (list_billers + pay_bill)
+### Tests for User Story 3
 
-- [x] T026 [P] [US5] Write failing tests for list_billers: returns all billers with id, category, category_display, reference, created_at as isoformat; account with no billers → {"billers": [], "count": 0}; no session_token required in mcp_server/tests/test_bills.py
-- [x] T027 [P] [US5] Write failing tests for pay_bill: valid payment → {"new_balance": str, "transaction_id": int}; biller_id not found → {"error": "Biller not found."}; biller belongs to different account → same Biller not found error; insufficient funds → {"error": "Insufficient funds."}; expired token → session error; wrong-owner token → not-authorised error; invalid amount → validation error in mcp_server/tests/test_bills.py
-- [x] T028 [P] [US5] Implement list_billers tool in mcp_server/server.py: look up Account via User, query account.biller_set.all(), return list with get_name_display() for category_display and created_at.isoformat() — makes T026 green
-- [x] T029 [P] [US5] Implement pay_bill tool in mcp_server/server.py: _mcp_validate_amount, validate_token, verify owner == username, look up Biller by biller_id scoped to account (raise "Biller not found." if missing or wrong account), call banking.services.pay_bill(account, biller, amount), return {"new_balance": str, "transaction_id": int} — makes T027 green
+> Write these tests first and confirm they fail before implementation.
 
-### Remaining — add_biller (Red-Green-Refactor)
+- [X] T029 [P] [US3] Rewrite deposit tests in `mcp_server/tests/test_transfers.py` for `deposit_funds(amount, session_token)` success, missing-token rejection, revoked-token rejection, invalid amount rejection, and balance unchanged on failure.
+- [X] T030 [P] [US3] Rewrite withdrawal tests in `mcp_server/tests/test_transfers.py` for `withdraw_funds(amount, session_token)` success, insufficient funds rejection, invalid amount rejection, missing-token rejection, revoked-token rejection, and balance unchanged on failure.
+- [X] T031 [P] [US3] Rewrite transfer tests in `mcp_server/tests/test_transfers.py` for `transfer_funds(recipient_phone, amount, session_token, description="")` success, recipient phone lookup, description stored on both transactions, missing recipient rejection, self-transfer rejection, insufficient funds rejection, invalid amount rejection, and balance unchanged on failure.
 
-> **Write tests FIRST — confirm they FAIL before implementing add_biller**
+### Implementation for User Story 3
 
-- [ ] T030 [US5] Add class `TestAddBiller` to `mcp_server/tests/test_bills.py`; write failing tests: success → returns `{"id": int, "category": "ELECTRICITY", "category_display": "Electricity", "reference": str, "created_at": str}`; invalid category value → `{"error": "Invalid category. Must be one of: ELECTRICITY, WATER_UTILITIES, INTERNET_BROADBAND, TELECOMMUNICATIONS, TOWN_COUNCIL."}`; duplicate category + reference for same account → `{"error": "A biller with this category and reference already exists."}`; expired token → session error; wrong-owner token → not-authorised error
-- [ ] T031 [US5] Run `pytest mcp_server/tests/test_bills.py::TestAddBiller` and confirm all tests fail (add_biller not yet implemented)
-- [ ] T032 [US5] Implement `add_biller` tool in `mcp_server/server.py`: validate `session_token` → verify owner == `username` → look up `Account` → validate `category` against `Biller.BILLER_CATEGORIES` key list → create `Biller(account=acct, name=category, reference=reference)` and call `.save()` → catch `IntegrityError` for duplicate (account, name, reference) constraint → return `{"id": b.pk, "category": b.name, "category_display": b.get_name_display(), "reference": b.reference, "created_at": b.created_at.isoformat()}`
-- [ ] T033 [US5] Run `pytest mcp_server/tests/test_bills.py` and confirm all tests pass; refactor if needed
+- [X] T032 [US3] Implement `deposit_funds(amount: str, session_token: str)` in `mcp_server/server.py`, validating amount before depositing into the authenticated user's account.
+- [X] T033 [US3] Implement `withdraw_funds(amount: str, session_token: str)` in `mcp_server/server.py`, validating amount and rejecting overdrafts before changing the authenticated user's account.
+- [X] T034 [US3] Implement `transfer_funds(recipient_phone: str, amount: str, session_token: str, description: str = "")` in `mcp_server/server.py`, delegating to personal transfer services and using phone-number recipient lookup.
+- [X] T035 [US3] Enforce transfer description length and structured validation errors for MCP money movement in `mcp_server/server.py` and `mcp_server/utils.py`.
+- [X] T036 [US3] Run `pytest mcp_server/tests/test_transfers.py -v` and make US3 tests pass.
 
-**Checkpoint**: US5 complete — billers can be listed, added, and paid; all `test_bills.py` tests pass
-
----
-
-## Phase 9: User Story 6 — Manage Business Account Pending Transactions (Priority: P3)
-
-**Goal**: Models acting as authorisers can list, approve, or reject pending business transactions. Only the assigned authoriser's token is accepted.
-
-**Independent Test**: `list_pending_transactions(identifier="Acme Pte Ltd")` returns PENDING transactions. `approve_transaction(pending_transaction_id=3, session_token=<authoriser>)` changes status to APPROVED and updates the business balance. A non-authoriser token returns `{"error": "Not authorised to perform this action."}`.
-
-### Tests for US6
-
-> **Write these FIRST — confirm they FAIL before implementing any of the three business pending tools**
-
-- [x] T034 [US6] Write failing tests for list_pending_transactions: returns PENDING transactions with id, transaction_type, amount as string, counterparty_username, description, created_at; business with no pending → {"pending_transactions": [], "count": 0}; unknown identifier → error in mcp_server/tests/test_business.py
-- [x] T035 [US6] Write failing tests for approve_transaction: PENDING → APPROVED, business balance updated, {"status": "APPROVED", "business_new_balance": str} returned; non-PENDING status → {"error": "Transaction is no longer pending."}; non-authoriser session token → {"error": "Not authorised to perform this action."}; expired token → session error in mcp_server/tests/test_business.py
-- [x] T036 [US6] Write failing tests for reject_transaction: PENDING → REJECTED, balance unchanged, {"status": "REJECTED"} returned; optional reason stored; same non-PENDING and non-authoriser error cases in mcp_server/tests/test_business.py
-
-### Implementation for US6
-
-- [x] T037 [US6] Implement list_pending_transactions tool in mcp_server/server.py: resolve BusinessAccount by UEN or company_name__iexact, filter PendingTransaction by business_account and status=PENDING, return list with amounts as strings and created_at as isoformat — makes T034 green
-- [x] T038 [US6] Implement approve_transaction tool in mcp_server/server.py: validate_token, look up PendingTransaction, get Authoriser for business_account, verify token owner == authoriser.user.username, verify status==PENDING, call banking.services.approve_business_pending(pending_txn), return {"status": "APPROVED", "business_new_balance": str} — makes T035 green
-- [x] T039 [US6] Implement reject_transaction tool in mcp_server/server.py: same token + authoriser + status checks, call banking.services.reject_business_pending(pending_txn, reason=""), return {"status": "REJECTED"} — makes T036 green
-
-**Checkpoint**: All three business pending tools functional; authoriser enforcement confirmed; T034/T035/T036 all green.
+**Checkpoint**: User Story 3 is fully functional and independently testable.
 
 ---
 
-## Phase 10: US8 — Open Account Signup (FR-022 to FR-026; clarifications 2026-05-26)
+## Phase 6: User Story 4 - Manage and Pay Personal Billers (Priority: P2)
 
-**Goal**: Unauthenticated callers can create a personal or business bank account; no session token required.
+**Goal**: An API-key-authenticated session can add fixed-category billers, list them, and pay only the authenticated user's own billers.
 
-**Independent Test**: `pytest mcp_server/tests/test_creation.py` passes in isolation.
+**Independent Test**: Authenticate as a user, add a biller with a valid category and reference, list it, pay it with sufficient funds, then confirm duplicate billers, unsupported categories, blank references, insufficient funds, wrong-owner billers, missing sessions, and revoked sessions are rejected.
 
-> **Write tests FIRST — confirm they FAIL before implementing either tool**
+### Tests for User Story 4
 
-### create_personal_account (Red-Green-Refactor)
+> Write these tests first and confirm they fail before implementation.
 
-- [ ] T040 [P] [US8] Create `mcp_server/tests/test_creation.py` with class `TestCreatePersonalAccount`; write failing tests: success with positive `initial_deposit` → balance matches deposit; success with `initial_deposit="0.00"` → balance is `"0.00"` and no deposit service call made; duplicate `username` → `{"error": "Username is already taken."}`; duplicate `email` → `{"error": "Email is already registered."}`; duplicate `phone_number` → `{"error": "Phone number is already registered."}`; negative `initial_deposit` → `{"error": "Amount must be greater than zero."}`
-- [ ] T041 [P] [US8] Run `pytest mcp_server/tests/test_creation.py::TestCreatePersonalAccount` and confirm all tests fail
-- [ ] T042 [P] [US8] Implement `create_personal_account` tool in `mcp_server/server.py`: accepts `name`, `username`, `email`, `phone_number`, `password`, optional `initial_deposit` (default `"0.00"`); guards: if `initial_deposit != "0.00"` call `_mcp_validate_amount`; wraps `CustomUser.objects.create_user(username=..., email=..., name=..., phone_number=..., password=...)` + optional `services.deposit(user.account, amount)` in `@transaction.atomic`; catches `IntegrityError` for duplicate fields; returns `{"username": str, "name": str, "balance": str, "created_at": str}`
-- [ ] T043 [P] [US8] Run `pytest mcp_server/tests/test_creation.py::TestCreatePersonalAccount` and confirm all tests pass; refactor if needed
+- [X] T037 [P] [US4] Add `TestAddBiller` coverage to `mcp_server/tests/test_bills.py` for `add_biller(session_token, category, reference)` success, invalid category, blank reference, duplicate category and reference, missing-token rejection, revoked-token rejection, and no cross-account writes.
+- [X] T038 [P] [US4] Rewrite pay-bill tests in `mcp_server/tests/test_bills.py` for `pay_bill(biller_id, amount, session_token)` success, wrong-owner biller rejection, missing biller rejection, insufficient funds, invalid amount, missing-token rejection, revoked-token rejection, and balance unchanged on failure.
 
-### create_business_account (Red-Green-Refactor)
+### Implementation for User Story 4
 
-- [ ] T044 [P] [US8] Add class `TestCreateBusinessAccount` to `mcp_server/tests/test_creation.py`; write failing tests: success → response has `company_name`, `uen`, `balance`, `manager_username`, `manager_password`, `manager_phone`, `authoriser_username`, `authoriser_password`, `authoriser_phone`; `initial_deposit` below 7000 → `{"error": "Initial deposit must be at least 7,000."}`; duplicate UEN → `{"error": "A business account with this UEN already exists."}`; returned manager credentials valid (login tool returns a token); returned authoriser credentials valid (login tool returns a token)
-- [ ] T045 [P] [US8] Run `pytest mcp_server/tests/test_creation.py::TestCreateBusinessAccount` and confirm all tests fail
-- [ ] T046 [P] [US8] Implement `create_business_account` tool in `mcp_server/server.py`: accepts `company_name`, `uen`, `street`, `city`, `postal_code`, optional `initial_deposit` (default `"7000.00"`); validates `Decimal(initial_deposit) >= 7000`; delegates to `services.create_business_account_mock(company_name, uen, street, city, postal_code, initial_deposit)`; fetches `BusinessAccount.objects.get(pk=result["business_account_id"])` to populate `company_name`, `uen`, `balance`; catches `IntegrityError` for duplicate UEN; returns all 9 response fields
-- [ ] T047 [P] [US8] Run `pytest mcp_server/tests/test_creation.py` and confirm all tests pass; refactor if needed
+- [X] T039 [US4] Implement `add_biller(session_token: str, category: str, reference: str)` in `mcp_server/server.py`, validating `banking.models.Biller` category choices and mandatory reference before saving to the authenticated user's account.
+- [X] T040 [US4] Catch duplicate biller constraints in `mcp_server/server.py` and return `{"error": "A biller with this category and reference already exists."}` without creating another `banking.models.Biller`.
+- [X] T041 [US4] Implement `pay_bill(biller_id: int, amount: str, session_token: str)` in `mcp_server/server.py`, scoped to the authenticated user's account and delegating to the existing bill payment service.
+- [X] T042 [US4] Run `pytest mcp_server/tests/test_bills.py -v` and make US4 tests pass.
 
-**Checkpoint**: US8 complete — personal and business accounts creatable via MCP with no session token; all `test_creation.py` tests pass
+**Checkpoint**: User Story 4 is fully functional and independently testable.
 
 ---
 
-## Phase 11: Polish & Cross-Cutting Concerns
+## Phase 7: User Story 5 - Open a Personal Account Through MCP (Priority: P3)
 
-**Purpose**: Code quality verification and end-to-end coverage validation.
+**Goal**: An unauthenticated caller can create a personal account through MCP, while authenticated MCP access still requires a separately generated API key.
 
-- [ ] T048 Run `pytest mcp_server/tests/ -v` and confirm all tests pass (all 16 tools covered)
-- [ ] T049 Run `pytest mcp_server/tests/ --cov=mcp_server --cov-report=term-missing` and verify line coverage ≥ 80%
-- [ ] T050 [P] Run `flake8 mcp_server/` and fix all E/W violations
-- [ ] T051 [P] Run `pylint mcp_server/ --disable=C` and address all errors and warnings
-- [ ] T052 [P] Run `bandit -r mcp_server/` and address any MEDIUM or HIGH severity findings
-- [ ] T053 Validate quickstart.md: run `python -m mcp_server` and confirm it starts without error (process exits cleanly on EOF)
+**Independent Test**: Create a personal account with unique identity fields and optional initial balance, then confirm duplicate username, email, phone number, invalid phone number, weak password, negative amount, non-numeric amount, and over-precise amount are rejected without partial account creation.
+
+### Tests for User Story 5
+
+> Write these tests first and confirm they fail before implementation.
+
+- [X] T043 [P] [US5] Create `mcp_server/tests/test_creation.py` with failing tests for successful `create_personal_account` with positive `initial_deposit`, explicit zero initial balance, omitted initial balance, and no API key returned.
+- [X] T044 [P] [US5] Add failing duplicate-field tests to `mcp_server/tests/test_creation.py` for duplicate username, duplicate email, and duplicate phone number.
+- [X] T045 [P] [US5] Add failing validation tests to `mcp_server/tests/test_creation.py` for invalid phone number, weak password, negative initial balance, non-numeric initial balance, and over-precise initial balance.
+
+### Implementation for User Story 5
+
+- [X] T046 [US5] Implement `create_personal_account(name: str, username: str, email: str, phone_number: str, password: str, initial_deposit: str = "0.00")` in `mcp_server/server.py` using the existing custom user model and account creation signal.
+- [X] T047 [US5] Validate personal signup uniqueness, phone number format, and password strength in `mcp_server/server.py` by reusing existing account validators or forms from `accounts/forms.py` and `accounts/validators.py`.
+- [X] T048 [US5] Apply optional initial balance atomically in `mcp_server/server.py`, skipping deposit service calls for omitted or zero initial balance and rejecting invalid amounts before user creation.
+- [X] T049 [US5] Run `pytest mcp_server/tests/test_creation.py -v` and make US5 tests pass.
+
+**Checkpoint**: User Story 5 is fully functional and independently testable.
+
+---
+
+## Phase 8: Polish & Cross-Cutting Concerns
+
+**Purpose**: Verify the full personal MCP surface, remove stale references, and run project quality gates.
+
+- [X] T050 Run `pytest mcp_server/tests/ -v` and resolve failures in `mcp_server/` and `mcp_server/tests/`.
+- [X] T051 Run `pytest mcp_server/tests/ --cov=mcp_server --cov-report=term-missing` and keep MCP coverage at or above 80% for `mcp_server/`.
+- [X] T052 [P] Run `flake8 mcp_server/` and fix E/W violations in `mcp_server/`.
+- [X] T053 [P] Run `pylint mcp_server/ --disable=C` and address non-cosmetic warnings in `mcp_server/`.
+- [ ] T054 [P] Run `bandit -r mcp_server/` and address MEDIUM or HIGH findings in `mcp_server/`. Blocked locally: Bandit raises internal AST errors under Python 3.14 and skips MCP files.
+- [X] T055 Run `python manage.py check` and fix Django configuration issues in `banking_app/settings.py`, `accounts/`, `banking/`, or `mcp_server/` only if they are caused by this feature.
+- [X] T056 Validate the updated run instructions in `specs/006-banking-mcp-server/quickstart.md` by starting `python -m mcp_server` and confirming the process starts cleanly on stdio.
+- [X] T057 Search `mcp_server/`, `mcp_server/tests/`, and `specs/006-banking-mcp-server/` for stale references to removed business MCP tools or username/password MCP login and remove any remaining feature-owned references.
 
 ---
 
@@ -245,91 +193,87 @@
 
 ### Phase Dependencies
 
-- **Setup (Phase 1)**: No dependencies — ✅ complete
-- **Foundational (Phase 2)**: Depends on Phase 1 — ✅ complete
-- **US7 (Phase 3)**: Depends on Phase 2 — ✅ complete
-- **US1 (Phase 4)**: Depends on Phase 2 — ✅ complete
-- **US2 (Phase 5)**: Depends on Phase 2 — ✅ complete
-- **US3 (Phase 6)**: Depends on Phase 3 — ✅ complete
-- **US4 (Phase 7)**: Depends on Phase 3 — ✅ complete
-- **US5 (Phase 8)**: Depends on Phase 3 — ⬜ partially complete (add_biller pending)
-- **US6 (Phase 9)**: Depends on Phase 3 — ✅ complete
-- **US8 (Phase 10)**: Depends on Phase 2 only (open signup — no token needed) — ⬜ not started
-- **Polish (Phase 11)**: Depends on all phases completing
+- **Setup (Phase 1)**: No dependencies; can start immediately.
+- **Foundational (Phase 2)**: Depends on Setup completion; blocks all user story implementation.
+- **US1 (Phase 3)**: Depends on Foundational; provides the authentication boundary for US2-US4.
+- **US2 (Phase 4)**: Depends on Foundational and US1; account reads require API-key sessions.
+- **US3 (Phase 5)**: Depends on Foundational and US1; money movement requires API-key sessions.
+- **US4 (Phase 6)**: Depends on Foundational and US1; biller writes require API-key sessions.
+- **US5 (Phase 7)**: Depends on Foundational only; personal signup is open and can be implemented independently of protected tools.
+- **Polish (Phase 8)**: Depends on all desired user stories being complete.
 
-### Remaining Work Order
+### User Story Dependencies
 
+- **User Story 1 (P1)**: Must be completed before protected read/write stories can pass.
+- **User Story 2 (P1)**: Requires US1 session validation but is otherwise independent of US3-US5.
+- **User Story 3 (P2)**: Requires US1 session validation and existing personal banking services.
+- **User Story 4 (P2)**: Requires US1 session validation and existing billing services.
+- **User Story 5 (P3)**: Can be implemented after Foundational without US1, because signup is unauthenticated.
+
+### Within Each User Story
+
+- Tests must be written and confirmed failing before implementation.
+- Shared helpers before tool implementation.
+- Tool implementation before story checkpoint test command.
+- Story checkpoint must pass before moving to another story unless working in parallel.
+
+---
+
+## Parallel Opportunities
+
+- T002, T003, and T004 can run in parallel after T001 is understood.
+- T013, T014, and T015 can run in parallel for US1 tests.
+- T020, T021, and T022 can run in parallel for US2 tests.
+- T029, T030, and T031 can run in parallel for US3 tests.
+- T037 and T038 can run in parallel for US4 tests.
+- T043, T044, and T045 can run in parallel for US5 tests.
+- T052, T053, and T054 can run in parallel during polish after the test suite is green.
+
+---
+
+## Parallel Example: User Story 2
+
+```bash
+# Independent test-writing tasks for protected reads:
+Task: "Rewrite protected account summary tests in mcp_server/tests/test_accounts.py"
+Task: "Rewrite protected transaction listing tests in mcp_server/tests/test_transactions.py"
+Task: "Update protected list-biller tests in mcp_server/tests/test_bills.py"
 ```
-T030 → T031 → T032 → T033     (add_biller: tests → confirm fail → impl → confirm pass)
-T040 → T041 → T042 → T043     (create_personal_account: same cycle)
-T044 → T045 → T046 → T047     (create_business_account: same cycle)
-All of the above → T048–T053   (polish and coverage)
-```
 
-### Parallel Opportunities
+---
 
-```
-# Test writing (different files / non-conflicting classes):
-T030  TestAddBiller in mcp_server/tests/test_bills.py
-T040  TestCreatePersonalAccount in mcp_server/tests/test_creation.py
+## Parallel Example: User Story 3
 
-# create_business_account tests go in same file as T040 (write after T040):
-T044  TestCreateBusinessAccount in mcp_server/tests/test_creation.py
-
-# Implementation (different functions in server.py — safe to parallelise):
-T032  add_biller in mcp_server/server.py
-T042  create_personal_account in mcp_server/server.py
-T046  create_business_account in mcp_server/server.py
-
-# Polish tasks T050–T052 are independent and can run in parallel
+```bash
+# Independent test-writing tasks for personal money movement:
+Task: "Rewrite deposit tests in mcp_server/tests/test_transfers.py"
+Task: "Rewrite withdrawal tests in mcp_server/tests/test_transfers.py"
+Task: "Rewrite transfer tests in mcp_server/tests/test_transfers.py"
 ```
 
 ---
 
 ## Implementation Strategy
 
-### Remaining Work Only
+### MVP First (User Story 1 Only)
 
-1. **US5 — add_biller** (Phase 8, T030–T033): Extend `test_bills.py` → implement `add_biller` in `server.py`
-2. **US8 — create_personal_account** (Phase 10, T040–T043): Create `test_creation.py` → implement in `server.py`
-3. **US8 — create_business_account** (Phase 10, T044–T047): Extend `test_creation.py` → implement in `server.py`
-4. **Polish** (Phase 11, T048–T053): Full test suite + coverage + lint + quickstart validation
-
-### Red-Green-Refactor Mandate (Constitution Principle II)
-
-For each remaining tool:
-1. Write test(s) — they **MUST fail** (no implementation yet)
-2. Run `pytest` to confirm failure
-3. Implement the tool handler
-4. Run `pytest` to confirm pass
-5. Refactor if needed; confirm pass again
+1. Complete Phase 1 to align design artifacts.
+2. Complete Phase 2 to remove obsolete tool surface and establish shared API-key session helpers.
+3. Complete Phase 3 so MCP clients can authenticate only with API keys.
+4. Stop and validate US1 with `pytest mcp_server/tests/test_api_key_auth.py mcp_server/tests/test_auth.py -v`.
 
 ### Incremental Delivery
 
-| Milestone | Status |
-|---|---|
-| Phase 1–2: Infrastructure | ✅ complete |
-| + US7: Login | ✅ complete |
-| + US1: Account queries | ✅ complete |
-| + US2: Transaction history | ✅ complete |
-| + US3: Transfers | ✅ complete |
-| + US4: Deposit / withdraw | ✅ complete |
-| + US5: List billers + pay bills | ✅ complete |
-| + US5: add_biller | ⬜ pending |
-| + US6: Business pending transactions | ✅ complete |
-| + US8: Account creation (personal + business) | ⬜ pending |
-| + Polish | ⬜ pending |
+1. Add US1 API-key-only authentication.
+2. Add US2 protected account reads.
+3. Add US3 personal money movement.
+4. Add US4 personal biller management and bill payment.
+5. Add US5 open personal signup.
+6. Run Phase 8 polish and quality gates.
 
----
+### Notes
 
-## Notes
-
-- US8 is not in the original spec user stories 1–7; it was introduced via clarifications on 2026-05-26 (FR-022 to FR-026 for account creation; FR-027 to FR-029 extends US5 with `add_biller`)
-- `add_biller` maps to US5 (not US8) because FR-027 extends bill-management; the category is stored in `Biller.name` (not `Biller.category`) — map `category` → `Biller.name` internally; use `b.get_name_display()` for `category_display` (see data-model.md)
-- `create_business_account` handler must call `BusinessAccount.objects.get(pk=result["business_account_id"])` after `services.create_business_account_mock()` because that service returns only IDs and credentials, not `company_name`, `uen`, or `balance`
-- `create_personal_account` zero-deposit guard: skip `services.deposit()` entirely when `initial_deposit == "0.00"` — `_mcp_validate_amount` rejects zero, so use a plain equality check before calling the validator
-- `[P]` tasks operate on different files with no mutual dependencies
-- All write tools (US3–US6) must test expired token, wrong-owner token, and invalid amount — not just the happy path
-- Decimal amounts MUST always be serialised as strings (never `float`) to prevent floating-point rounding loss
-- Token storage is in-memory only; restarting the server process invalidates all active sessions
-- `MCP_SESSION_TIMEOUT_MINUTES` is read from `os.environ` at module import; default is 15
+- The old business account MCP implementation and tests are deliberately removed or converted into absence tests.
+- Protected personal tools should derive the target account from the API-key session instead of accepting a target username.
+- `create_personal_account` is the only open tool in this feature and must not create or return API keys.
+- Existing web API-key management from `specs/007-mcp-api-key-auth/` remains the source for generating and revoking API keys.

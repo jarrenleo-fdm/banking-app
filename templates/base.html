@@ -78,6 +78,18 @@
           Billing
         </a>
 
+        <a
+          class="nav-link {% if request.resolver_match.url_name == 'profile' %}active{% endif %}"
+          href="{% url 'accounts:profile' %}"
+        >
+          <svg class="nav-ico" viewBox="0 0 15 15" fill="currentColor">
+            <path
+              d="M7.5 7.5A3.25 3.25 0 107.5 1a3.25 3.25 0 000 6.5zm0 1C4.46 8.5 2 10.3 2 12.5V14h11v-1.5c0-2.2-2.46-4-5.5-4z"
+            />
+          </svg>
+          Profile
+        </a>
+
         {% if authoriser_pending_count %}
         <a
           class="nav-link {% if request.resolver_match.url_name == 'authoriser_queue' %}active{% endif %}"

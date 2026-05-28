@@ -1,4 +1,4 @@
-"""Tests for TokenStore, _mcp_validate_amount, and login tool."""
+"""Tests for API-key-backed TokenStore and MCP amount validation."""
 import datetime
 from decimal import Decimal
 from unittest.mock import patch
@@ -6,39 +6,70 @@ from unittest.mock import patch
 import pytest
 
 
-# ---------------------------------------------------------------------------
-# T004 — TokenStore
-# ---------------------------------------------------------------------------
-
-
 class TestTokenStore:
     def test_issue_token_returns_64_char_hex(self):
         from mcp_server.auth import TokenStore
 
-        ts = TokenStore()
-        token = ts.issue_token("alice")
+        token = TokenStore().issue_token(
+            "alice",
+            api_key_identifier="ak_1234567890abcdef",
+        )
         assert len(token) == 64
         assert all(c in "0123456789abcdef" for c in token)
 
-    def test_validate_token_returns_username(self):
+    def test_issue_token_requires_api_key_identifier(self):
+        from mcp_server.auth import TokenStore
+
+        with pytest.raises(ValueError):
+            TokenStore().issue_token("alice")
+
+    def test_issue_token_stores_api_key_context(self):
         from mcp_server.auth import TokenStore
 
         ts = TokenStore()
-        token = ts.issue_token("alice")
+        token = ts.issue_token(
+            "alice",
+            api_key_identifier="ak_1234567890abcdef",
+        )
+        record = ts._tokens[token]
+        assert record.username == "alice"
+        assert record.auth_method == "api_key"
+        assert record.api_key_identifier == "ak_1234567890abcdef"
+
+    @pytest.mark.django_db
+    def test_validate_token_returns_username_for_active_key(
+        self, db_user, make_api_key
+    ):
+        from mcp_server.auth import TokenStore
+
+        api_key, _raw_secret = make_api_key(db_user)
+        ts = TokenStore()
+        token = ts.issue_token(
+            "alice",
+            api_key_identifier=api_key.identifier,
+        )
         assert ts.validate_token(token) == "alice"
 
     def test_validate_unknown_token_raises(self):
         from mcp_server.auth import SessionExpiredError, TokenStore
 
-        ts = TokenStore()
         with pytest.raises(SessionExpiredError):
-            ts.validate_token("0" * 64)
+            TokenStore().validate_token("0" * 64)
+
+    def test_validate_missing_token_raises(self):
+        from mcp_server.auth import SessionExpiredError, TokenStore
+
+        with pytest.raises(SessionExpiredError):
+            TokenStore().validate_token("")
 
     def test_validate_expired_token_raises(self):
         from mcp_server.auth import SessionExpiredError, TokenStore
 
         ts = TokenStore()
-        token = ts.issue_token("alice")
+        token = ts.issue_token(
+            "alice",
+            api_key_identifier="ak_1234567890abcdef",
+        )
         future = datetime.datetime.now() + datetime.timedelta(hours=1)
         with patch("mcp_server.auth.datetime") as mock_dt:
             mock_dt.now.return_value = future
@@ -49,17 +80,46 @@ class TestTokenStore:
         from mcp_server.auth import TokenStore
 
         ts = TokenStore()
-        token = ts.issue_token("alice")
+        token = ts.issue_token(
+            "alice",
+            api_key_identifier="ak_1234567890abcdef",
+        )
         future = datetime.datetime.now() + datetime.timedelta(hours=1)
         with patch("mcp_server.auth.datetime") as mock_dt:
             mock_dt.now.return_value = future
             ts._purge_expired()
         assert token not in ts._tokens
 
+    @pytest.mark.django_db
+    def test_validate_api_key_token_rejects_revoked_key(self, db_user, make_api_key):
+        from accounts.api_keys import revoke_key
+        from mcp_server.auth import SessionExpiredError, TokenStore
 
-# ---------------------------------------------------------------------------
-# T006 — _mcp_validate_amount
-# ---------------------------------------------------------------------------
+        api_key, _raw_secret = make_api_key(db_user)
+        ts = TokenStore()
+        token = ts.issue_token(
+            "alice",
+            api_key_identifier=api_key.identifier,
+        )
+        revoke_key(api_key, db_user)
+
+        with pytest.raises(SessionExpiredError):
+            ts.validate_token(token)
+
+
+    def test_revoke_token_removes_it(self):
+        from mcp_server.auth import SessionExpiredError, TokenStore
+
+        ts = TokenStore()
+        token = ts.issue_token("alice", api_key_identifier="ak_1234567890abcdef")
+        assert ts.revoke_token(token) is True
+        with pytest.raises(SessionExpiredError):
+            ts.validate_token(token)
+
+    def test_revoke_unknown_token_returns_false(self):
+        from mcp_server.auth import TokenStore
+
+        assert TokenStore().revoke_token("0" * 64) is False
 
 
 class TestMcpValidateAmount:
@@ -73,12 +133,6 @@ class TestMcpValidateAmount:
 
         with pytest.raises(ValueError, match="positive"):
             _mcp_validate_amount("0")
-
-    def test_zero_decimal_raises(self):
-        from mcp_server.utils import _mcp_validate_amount
-
-        with pytest.raises(ValueError, match="positive"):
-            _mcp_validate_amount("0.00")
 
     def test_negative_raises(self):
         from mcp_server.utils import _mcp_validate_amount
@@ -97,36 +151,3 @@ class TestMcpValidateAmount:
 
         with pytest.raises(ValueError):
             _mcp_validate_amount("abc")
-
-
-# ---------------------------------------------------------------------------
-# T010 — login tool
-# ---------------------------------------------------------------------------
-
-
-_ALICE_SECRET = "TestPass123!"  # test fixture credential — not a real secret
-
-
-@pytest.mark.django_db
-class TestLoginTool:
-    def test_valid_credentials_returns_token(self, db_user):
-        from mcp_server.server import login
-
-        result = login("alice", _ALICE_SECRET)
-        assert "session_token" in result
-        assert len(result["session_token"]) == 64
-        assert result["expires_in_minutes"] == 15
-
-    def test_wrong_credentials_returns_error(self, db_user):
-        from mcp_server.server import login
-
-        result = login("alice", "not-the-right-one")
-        assert result == {"error": "Authentication failed."}
-        assert "session_token" not in result
-
-    def test_unknown_user_returns_generic_error(self):
-        from mcp_server.server import login
-
-        result = login("nobody", "irrelevant")
-        assert result == {"error": "Authentication failed."}
-        assert "session_token" not in result

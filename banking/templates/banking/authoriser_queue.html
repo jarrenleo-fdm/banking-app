@@ -4,6 +4,21 @@
 {% block page_title %}Authoriser Queue{% endblock %}
 {% block content %}
 
+{% if business_account %}
+<div class="balance-hero">
+  <div class="balance-hero-inner">
+    <div>
+      <p class="balance-label">Business Balance</p>
+      <p class="balance">${{ business_account.balance|floatformat:2|intcomma }}</p>
+      <p class="account-sub">
+        <span class="account-type-badge">Business</span>
+        &nbsp;{{ business_account.company_name }}
+      </p>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <div class="panel">
   {% if pending_txns %}
   <table>
