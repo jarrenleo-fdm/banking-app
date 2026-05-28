@@ -579,3 +579,102 @@ def test_reject_business_pending_balance_unchanged():
     reject_business_pending(pt, auth_user)
     ba.refresh_from_db()
     assert ba.balance == Decimal("3000.00")
+
+
+# --- US4: Authoriser immediate-execution service tests ---
+
+def _make_auth_ba(uen="US4_UEN", balance=Decimal("10000.00")):
+    from banking.services import deposit_to_business
+    ba, mgr, auth_user = make_business(company="AuthCo", uen=uen)
+    deposit_to_business(ba, balance)
+    ba.refresh_from_db()
+    return ba, mgr, auth_user
+
+
+def test_withdraw_from_business_deducts_balance_and_creates_transaction():
+    from banking.services import withdraw_from_business
+    from banking.models import BusinessTransaction
+    ba, _, _ = _make_auth_ba()
+    txn = withdraw_from_business(ba, Decimal("2000.00"))
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("8000.00")
+    assert txn.transaction_type == BusinessTransaction.WITHDRAWAL
+    assert txn.amount == Decimal("2000.00")
+    assert txn.balance_after == Decimal("8000.00")
+
+
+def test_withdraw_from_business_zero_amount_raises():
+    from banking.services import withdraw_from_business
+    ba, _, _ = _make_auth_ba(uen="US4_ZERO")
+    with pytest.raises(InvalidAmountError):
+        withdraw_from_business(ba, Decimal("0.00"))
+
+
+def test_withdraw_from_business_floor_breach_raises():
+    from banking.services import withdraw_from_business
+    ba, _, _ = _make_auth_ba(uen="US4_FLOOR")
+    with pytest.raises(InsufficientFundsError):
+        withdraw_from_business(ba, Decimal("4000.00"))
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("10000.00")
+
+
+def test_withdraw_from_business_exact_floor_succeeds():
+    from banking.services import withdraw_from_business
+    ba, _, _ = _make_auth_ba(uen="US4_EXACT")
+    txn = withdraw_from_business(ba, Decimal("3000.00"))
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("7000.00")
+    assert txn.balance_after == Decimal("7000.00")
+
+
+def test_transfer_from_business_executes_immediately_and_creates_transaction():
+    from banking.services import transfer_from_business
+    from banking.models import BusinessTransaction, PendingTransaction
+    ba, _, _ = _make_auth_ba(uen="US4_TR")
+    recipient = create_user("TrRecipient", "91234567")
+    txn = transfer_from_business(ba, Decimal("500.00"), "91234567")
+    ba.refresh_from_db()
+    recipient.account.refresh_from_db()
+    assert ba.balance == Decimal("9500.00")
+    assert recipient.account.balance == Decimal("500.00")
+    assert txn.transaction_type == BusinessTransaction.TRANSFER_OUT
+    assert PendingTransaction.objects.filter(business_account=ba).count() == 0
+
+
+def test_transfer_from_business_recipient_not_found_raises():
+    from banking.services import transfer_from_business
+    ba, _, _ = _make_auth_ba(uen="US4_NF")
+    with pytest.raises(RecipientNotFoundError):
+        transfer_from_business(ba, Decimal("100.00"), "99999999")
+
+
+def test_transfer_from_business_floor_breach_raises():
+    from banking.services import transfer_from_business
+    ba, _, _ = _make_auth_ba(uen="US4_TRF")
+    create_user("FloorRecipient", "92222222")
+    with pytest.raises(InsufficientFundsError):
+        transfer_from_business(ba, Decimal("4000.00"), "92222222")
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("10000.00")
+
+
+def test_pay_bill_from_business_creates_transaction_with_description():
+    from banking.services import pay_bill_from_business
+    from banking.models import BusinessTransaction
+    ba, _, _ = _make_auth_ba(uen="US4_BILL")
+    txn = pay_bill_from_business(ba, Decimal("200.00"), "utilities", "ACC-001")
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("9800.00")
+    assert txn.transaction_type == BusinessTransaction.BILL_PAYMENT
+    assert "utilities" in txn.description
+    assert "ACC-001" in txn.description
+
+
+def test_pay_bill_from_business_floor_breach_raises():
+    from banking.services import pay_bill_from_business
+    ba, _, _ = _make_auth_ba(uen="US4_BILLF")
+    with pytest.raises(InsufficientFundsError):
+        pay_bill_from_business(ba, Decimal("4000.00"), "utilities", "ACC-001")
+    ba.refresh_from_db()
+    assert ba.balance == Decimal("10000.00")

@@ -3,6 +3,7 @@ from django.shortcuts import redirect
 from django.urls import path
 
 from . import views
+from .views import manager_pending_view
 
 app_name = "banking"
 
@@ -37,4 +38,5 @@ urlpatterns = [
     ),
     path("business/create/", views.create_business_account_view, name="create_business_account"),
     path("business/created/", views.business_account_created_view, name="business_account_created"),
+    path("banking/pending/", manager_pending_view, name="manager_pending"),
 ]

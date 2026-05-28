@@ -3,6 +3,7 @@ from decimal import Decimal
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.messages import get_messages
 from django.urls import reverse
 
 
@@ -165,3 +166,223 @@ def test_signup_with_negative_initial_balance_is_rejected(client):
     assert response.status_code == 200
     assert b"errorlist" in response.content
     assert not User.objects.filter(username="Alice").exists()
+
+
+def test_profile_requires_authentication(client):
+    response = client.get(reverse("accounts:profile"))
+
+    assert response.status_code == 302
+    assert response.url == (
+        f"{reverse('accounts:login')}?next={reverse('accounts:profile')}"
+    )
+
+
+def test_profile_get_shows_current_details_and_password_change_controls(client):
+    user = create_user()
+    client.force_login(user)
+
+    response = client.get(reverse("accounts:profile"))
+
+    assert response.status_code == 200
+    assert b"Alice Example" in response.content
+    assert b"alice@example.com" in response.content
+    assert b"81234567" in response.content
+    assert b'name="username"' in response.content
+    assert b'name="old_password"' in response.content
+    assert b'name="new_password1"' in response.content
+    assert b"StrongerPass123" not in response.content
+
+
+def test_profile_post_updates_valid_details(client):
+    user = create_user()
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile"),
+        {
+            "name": "Alice Updated",
+            "email": "updated@example.com",
+            "phone_number": "91234567",
+            "username": "AliceNew",
+        },
+    )
+    user.refresh_from_db()
+
+    assert response.status_code == 302
+    assert response.url == reverse("accounts:profile")
+    assert user.name == "Alice Updated"
+    assert user.email == "updated@example.com"
+    assert user.phone_number == "91234567"
+    assert user.username == "AliceNew"
+    messages = [str(message) for message in get_messages(response.wsgi_request)]
+    assert "Your details have been updated." in messages
+
+
+def test_profile_username_change_updates_future_login_identifier(client):
+    user = create_user()
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile"),
+        {
+            "name": "Alice Example",
+            "email": "alice@example.com",
+            "phone_number": "81234567",
+            "username": "AliceNew",
+        },
+    )
+
+    assert response.status_code == 302
+    client.logout()
+    old_login = client.post(
+        reverse("accounts:login"),
+        {"username": "Alice", "password": "StrongerPass123"},
+    )
+    new_login = client.post(
+        reverse("accounts:login"),
+        {"username": "AliceNew", "password": "StrongerPass123"},
+    )
+    assert old_login.status_code == 200
+    assert b"Invalid username or password." in old_login.content
+    assert new_login.status_code == 302
+    assert new_login.url == reverse("banking:dashboard")
+
+
+def test_profile_post_rejects_invalid_details_without_saving(client):
+    user = create_user()
+    create_user(
+        username="Bob",
+        email="bob@example.com",
+        phone_number="91234567",
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile"),
+        {
+            "name": "Alice Updated",
+            "username": "Alice",
+            "email": "bob@example.com",
+            "phone_number": "12345678",
+        },
+    )
+    user.refresh_from_db()
+
+    assert response.status_code == 200
+    assert b"errorlist" in response.content
+    assert user.name == "Alice Example"
+    assert user.email == "alice@example.com"
+    assert user.phone_number == "81234567"
+    assert user.username == "Alice"
+
+
+def test_profile_post_rejects_duplicate_username_without_saving(client):
+    user = create_user()
+    create_user(
+        username="Bob",
+        email="bob@example.com",
+        phone_number="91234567",
+    )
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile"),
+        {
+            "name": "Alice Updated",
+            "username": "bob",
+            "email": "updated@example.com",
+            "phone_number": "81234567",
+        },
+    )
+    user.refresh_from_db()
+
+    assert response.status_code == 200
+    assert b"errorlist" in response.content
+    assert user.username == "Alice"
+    assert user.email == "alice@example.com"
+
+
+def test_profile_post_rejects_invalid_username_without_saving(client):
+    user = create_user()
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile"),
+        {
+            "name": "Alice Updated",
+            "username": "bad username",
+            "email": "updated@example.com",
+            "phone_number": "91234567",
+        },
+    )
+    user.refresh_from_db()
+
+    assert response.status_code == 200
+    assert b"errorlist" in response.content
+    assert user.username == "Alice"
+
+
+def test_profile_password_change_updates_password_and_keeps_session(client):
+    user = create_user()
+    client.force_login(user)
+
+    response = client.post(
+        reverse("accounts:profile"),
+        {
+            "form_type": "password",
+            "old_password": "StrongerPass123",
+            "new_password1": "NewStrongPass123!",
+            "new_password2": "NewStrongPass123!",
+        },
+    )
+    user.refresh_from_db()
+
+    assert response.status_code == 302
+    assert response.url == reverse("accounts:profile")
+    assert user.check_password("NewStrongPass123!")
+    assert not user.check_password("StrongerPass123")
+    assert client.get(reverse("accounts:profile")).status_code == 200
+    messages = [str(message) for message in get_messages(response.wsgi_request)]
+    assert "Your password has been updated." in messages
+    client.logout()
+    old_login = client.post(
+        reverse("accounts:login"),
+        {"username": "Alice", "password": "StrongerPass123"},
+    )
+    new_login = client.post(
+        reverse("accounts:login"),
+        {"username": "Alice", "password": "NewStrongPass123!"},
+    )
+    assert old_login.status_code == 200
+    assert b"Invalid username or password." in old_login.content
+    assert new_login.status_code == 302
+    assert new_login.url == reverse("banking:dashboard")
+
+
+@pytest.mark.parametrize(
+    "payload_update",
+    [
+        {"old_password": "wrong-password"},
+        {"new_password1": "weakpass", "new_password2": "weakpass"},
+        {"new_password2": "DifferentPass123!"},
+    ],
+)
+def test_profile_password_change_rejects_invalid_submissions(
+    client, payload_update
+):
+    user = create_user()
+    client.force_login(user)
+    payload = {
+        "form_type": "password",
+        "old_password": "StrongerPass123",
+        "new_password1": "NewStrongPass123!",
+        "new_password2": "NewStrongPass123!",
+    }
+    payload.update(payload_update)
+
+    response = client.post(reverse("accounts:profile"), payload)
+    user.refresh_from_db()
+
+    assert response.status_code == 200
+    assert b"errorlist" in response.content
+    assert user.check_password("StrongerPass123")

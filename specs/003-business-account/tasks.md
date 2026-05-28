@@ -219,6 +219,64 @@
 
 ---
 
+## Phase 7: Revised Role Model — Authoriser Dashboard & Direct Transactions (FR-008a, FR-005)
+
+**Goal**: Authoriser logs in and sees a business account dashboard (BA balance, transaction history, transaction forms). Outgoing transactions submitted by the authoriser execute immediately — no pending queue entry created.
+
+**Independent Test**: Log in as authoriser, submit a withdrawal, confirm balance immediately decreases and no `PendingTransaction` row was created.
+
+### Tests for Phase 7 — Write FIRST, verify FAIL before implementing T067–T076 (Constitution §II)
+
+> **NOTE: Write these tests FIRST. Run `pytest banking/tests/` to confirm RED before T067.**
+
+- [X] T065 [P] [US4] Write service tests in banking/tests/test_services.py: `test_withdraw_from_business_deducts_balance_and_creates_transaction`, `test_withdraw_from_business_zero_amount_raises`, `test_withdraw_from_business_floor_breach_raises`, `test_withdraw_from_business_exact_floor_succeeds` (balance − amount == 7000 is acceptable), `test_transfer_from_business_executes_immediately_and_creates_transaction`, `test_transfer_from_business_recipient_not_found_raises`, `test_transfer_from_business_floor_breach_raises`, `test_pay_bill_from_business_creates_transaction_with_description`, `test_pay_bill_from_business_floor_breach_raises`
+- [X] T066 [P] [US4] Write view tests in banking/tests/test_views.py: `test_dashboard_view_as_authoriser_shows_business_account`, `test_deposit_view_as_authoriser_updates_balance_immediately`, `test_withdraw_view_as_authoriser_deducts_balance_immediately_no_pending_tx_created`, `test_withdraw_view_as_authoriser_floor_breach_shows_error`, `test_transfer_view_as_authoriser_executes_immediately`, `test_pay_bill_view_as_authoriser_executes_immediately`
+
+### Implementation for Phase 7
+
+- [X] T067 [US4] Add `withdraw_from_business(ba, amount)` to banking/services.py wrapped in `@transaction.atomic`: `_validate_amount(amount)`; re-fetch BA with `select_for_update`; if `ba.balance - amount < Decimal("7000.00")` raise `InsufficientFundsError("Transaction would bring balance below minimum (7,000).")`; deduct from `ba.balance`; `ba.save(update_fields=["balance"])`; create `BusinessTransaction(WITHDRAWAL, amount, balance_after=ba.balance)`
+- [X] T068 [P] [US4] Add `transfer_from_business(ba, amount, recipient_phone)` to banking/services.py wrapped in `@transaction.atomic`: `_validate_amount(amount)`; re-fetch BA with `select_for_update`; check floor; look up `Account` by `user__phone_number=recipient_phone` (raise `RecipientNotFoundError` if not found); deduct from ba; add to recipient personal account; save both; create `BusinessTransaction(TRANSFER_OUT, amount, balance_after, counterparty=recipient_account)`; create recipient `Transaction(TRANSFER_IN, amount, balance_after, counterparty=ba.manager.business_account)` — use `Account.objects.get(user__phone_number=recipient_phone)` and the existing personal `transfer()` logic as a reference
+- [X] T069 [P] [US4] Add `pay_bill_from_business(ba, amount, category, reference)` to banking/services.py wrapped in `@transaction.atomic`: `_validate_amount(amount)`; re-fetch BA with `select_for_update`; check floor; deduct from ba; `ba.save(update_fields=["balance"])`; create `BusinessTransaction(BILL_PAYMENT, amount, balance_after=ba.balance, description=f"{category} ({reference})")`
+- [X] T075 [US4] Add `withdraw_from_business`, `transfer_from_business`, `pay_bill_from_business` to the import block in banking/views.py (alongside existing `.services` imports)
+- [X] T070 [US4] Add authoriser branch to `dashboard_view` in banking/views.py: insert `elif hasattr(request.user, "authoriser_profile"):` block (after the manager branch, before personal fallthrough); fetch BA via `request.user.authoriser_profile.business_account`; pass `is_authoriser=True`, `business_account`, `balance=ba.balance`, `recent_transactions=ba.transactions.order_by("-timestamp")[:5]`, `deposit_form`, `withdraw_form`, `transfer_form`, `bill_pay_form=BusinessBillPaymentForm()`; render `banking/dashboard.html`
+- [X] T071 [US4] Add authoriser branch to `deposit_view` in banking/views.py: insert `elif hasattr(request.user, "authoriser_profile"):` block; validate `DepositForm`; call `deposit_to_business(ba, amount)` (deposit executes immediately for both roles — same service call as manager); on success flash and redirect to dashboard; on error re-render with authoriser context
+- [X] T072 [US4] Add authoriser branch to `withdraw_view` in banking/views.py: insert `elif hasattr(request.user, "authoriser_profile"):` block; call `withdraw_from_business(ba, amount)` (immediate, NOT pending queue); on `InsufficientFundsError` add form error and re-render; on success flash and redirect to dashboard
+- [X] T073 [US4] Add authoriser branch to `transfer_view` in banking/views.py: insert `elif hasattr(request.user, "authoriser_profile"):` block; call `transfer_from_business(ba, amount, recipient_phone)`; handle `RecipientNotFoundError` (non-field error) and `InsufficientFundsError` (amount field error); on success flash and redirect
+- [X] T074 [US4] Add authoriser branch to `pay_bill_view` in banking/views.py: insert `elif hasattr(request.user, "authoriser_profile"):` block; parse `BusinessBillPaymentForm(request.POST)`; call `pay_bill_from_business(ba, amount, category, reference)`; handle errors; redirect to dashboard on success
+- [X] T076 [US4] Update banking/templates/banking/dashboard.html: add `{% elif is_authoriser %}` block (between manager `{% if is_manager %}` and personal `{% else %}`) rendering BA company name, balance, last 5 `BusinessTransaction` records, and inline deposit/withdraw/transfer/bill-pay forms; also add `{% if authoriser_pending_count > 0 %}<a href="{% url 'banking:authoriser_queue' %}">Pending Approvals ({{ authoriser_pending_count }})</a>{% endif %}` inside the authoriser block (FR-009a)
+
+**Checkpoint**: All T065/T066 tests pass; manually follow quickstart Flow 6 — authoriser's withdrawal executes immediately, balance decreases, no `PendingTransaction` row created
+
+---
+
+## Phase 8: Manager Read-Only Pending Queue (FR-009)
+
+**Goal**: Account manager can view all pending transactions for their business account at `/banking/pending/`. View is entirely read-only — no approve or reject buttons. Non-managers get 403. Manager POSTing to the authoriser approve/reject endpoint gets 403.
+
+**Independent Test**: As account manager, submit a withdrawal, then visit `/banking/pending/` — transaction appears in the list with no action controls; attempt `POST /banking/authorise/<id>/approve/` as the manager → 403 returned.
+
+### Tests for Phase 8 — Write FIRST, verify FAIL before implementing T078–T082 (Constitution §II)
+
+> **NOTE: Write these tests FIRST. Run `pytest banking/tests/` to confirm RED before T078.**
+
+- [X] T077 [US5] Write view tests in banking/tests/test_views.py: `test_manager_pending_view_lists_pending_transactions`, `test_manager_pending_view_has_no_approve_reject_controls`, `test_manager_pending_view_empty_queue_shows_message`, `test_manager_pending_view_non_manager_returns_403`, `test_manager_pending_view_unauthenticated_redirects_to_login`
+
+### Implementation for Phase 8
+
+- [X] T078 [US5] Implement `manager_pending_view` in banking/views.py: `@login_required`; GET only (no `@require_POST`); if `not hasattr(request.user, "manager_profile")` return `HttpResponseForbidden()`; filter `PendingTransaction.objects.filter(business_account=request.user.manager_profile.business_account, status=PendingTransaction.PENDING).order_by("-created_at")`; render `banking/manager_pending.html` with `{"pending_txns": pending_txns}`
+- [X] T079 [US5] Create banking/templates/banking/manager_pending.html: page heading "Pending Transactions"; table listing each pending transaction (type display, amount, description, `created_at`); empty-queue message when `pending_txns` is empty; navigation link back to dashboard; no approve or reject form controls anywhere on the page
+- [X] T080 [US5] Add `path("banking/pending/", manager_pending_view, name="manager_pending")` to banking/urls.py and add `manager_pending_view` to the import from `banking.views`
+- [X] T082 [P] [US5] Update banking/templates/banking/authoriser_queue.html: add company name and current balance in the page header above the transactions table; pass `business_account` from `authoriser_queue_view` in banking/views.py — add `"business_account": business_account` to the context dict in that view
+
+### Final Verification for Phase 8
+
+- [X] T083 Run `pytest` — all Phase 7 and Phase 8 tests pass; no regressions in any earlier phase
+- [ ] T084 [P] Manually run quickstart.md Flows 6 and 7 and the three new Validation Checks: authoriser floor breach (error, no transaction), non-manager at `/banking/pending/` (403), manager POST to approve/reject endpoint (403)
+
+**Checkpoint**: Full test suite green; all quickstart.md Flows 1–7 and all Validation Checks rows pass.
+
+---
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies
@@ -229,12 +287,16 @@
 - **Phase 4** (US2): Depends on Phase 2; practically requires US1 complete (manager users are created by US1's service and needed for test fixtures)
 - **Phase 5** (US3): Depends on Phase 2; requires US1 (authoriser user) and US2 (pending transactions to act on)
 - **Phase N** (Polish): Depends on all story phases complete
+- **Phase 7** (US4 — Authoriser Direct Transactions): Depends on Phases 1–5 complete (authoriser user, service layer, and views must be in place)
+- **Phase 8** (US5 — Manager Pending Queue): Depends on Phase 4 (manager view pattern); can proceed in parallel with Phase 7
 
 ### User Story Dependencies
 
 - **US1** (Create Business Account): Independently testable after Phase 2; delivers manager + authoriser users needed by US2/US3 tests
 - **US2** (Manager Submits Transaction): Requires US1 for fixture setup; PendingTransactions created here are acted on in US3
 - **US3** (Authoriser Approves/Rejects): Requires US1 (authoriser user) and US2 (pending transactions)
+- **US4** (Authoriser Direct Transactions): Requires US1 (authoriser user created) and existing service/view layer from Phases 4–6; same authoriser fixture as US3
+- **US5** (Manager Read-Only Queue): Requires US2 (pending transactions to list); independent of US4
 
 ### Within Each Phase
 
@@ -252,6 +314,9 @@
 - T021, T022 (US1 templates) — different template files, run in parallel
 - T024, T025 (US2 tests) — run in parallel
 - T035, T036, T037 (US3 tests) — run in parallel
+- T065, T066 (Phase 7 tests) — service tests and view tests; write in parallel
+- T068, T069 (Phase 7 service functions) — different functions; run after T067 establishes the pattern
+- Phase 7 (US4) and Phase 8 (US5) can be worked in parallel once Phases 1–5 are complete (different views, templates, and URLs)
 
 ---
 
@@ -285,7 +350,9 @@ T021, T022 (templates) can run in parallel alongside T017
 2. Add US1 → Business account creation works end-to-end (quickstart Flow 1)
 3. Add US2 → Manager submits transactions (quickstart Flows 2 + 3)
 4. Add US3 → Authoriser approves/rejects (quickstart Flows 4 + 5)
-5. Polish → All validation checks pass, full test suite green
+5. Polish + Phase 6 → All 10 Validation Checks pass, full test suite green
+6. Add US4 → Authoriser dashboard + direct transactions (quickstart Flow 6)
+7. Add US5 → Manager read-only pending queue (quickstart Flow 7)
 
 ---
 

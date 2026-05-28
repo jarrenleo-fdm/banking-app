@@ -1,114 +1,98 @@
-"""Tests for list_transactions and list_business_transactions tools (US2)."""
+"""Tests for protected list_transactions tool."""
 from decimal import Decimal
 
 import pytest
+from django.utils import timezone
+
+from banking import services
 
 
 @pytest.mark.django_db
 class TestListTransactions:
-    def test_empty_account_returns_zero_count(self, db_user):
+    def test_empty_account_returns_zero_count(self, db_user, api_session):
         from mcp_server.server import list_transactions
 
-        result = list_transactions(username="alice")
+        result = list_transactions(session_token=api_session)
+
         assert result == {"transactions": [], "count": 0}
 
-    def test_returns_transactions_newest_first(self, db_user):
+    def test_returns_transactions_newest_first(self, db_user, api_session):
         from mcp_server.server import list_transactions
-        from banking import services
 
         services.deposit(db_user.account, Decimal("100.00"))
         services.deposit(db_user.account, Decimal("200.00"))
-        result = list_transactions(username="alice")
+
+        result = list_transactions(session_token=api_session)
+
         assert result["count"] == 2
-        # Newest first — second deposit has higher balance_after
         assert result["transactions"][0]["balance_after"] == "300.00"
 
-    def test_transaction_type_filter(self, db_user):
+    def test_transaction_type_filter(self, db_user, api_session):
         from mcp_server.server import list_transactions
-        from banking import services
 
         services.deposit(db_user.account, Decimal("500.00"))
         services.withdraw(db_user.account, Decimal("50.00"))
-        result = list_transactions(username="alice", transaction_type="DEPOSIT")
+
+        result = list_transactions(
+            session_token=api_session,
+            transaction_type="DEPOSIT",
+        )
+
         assert result["count"] == 1
         assert result["transactions"][0]["transaction_type"] == "DEPOSIT"
 
-    def test_limit_capped_at_100(self, db_user):
+    def test_date_filters(self, db_user, api_session):
         from mcp_server.server import list_transactions
 
-        result = list_transactions(username="alice", limit=200)
-        # No error — limit silently capped
-        assert "transactions" in result
+        services.deposit(db_user.account, Decimal("10.00"))
+        today = timezone.localdate().isoformat()
 
-    def test_default_limit_is_20(self, db_user):
+        result = list_transactions(
+            session_token=api_session,
+            date_from=today,
+            date_to=today,
+        )
+
+        assert result["count"] == 1
+
+    def test_default_limit_is_20_and_max_is_100(self, db_user, api_session):
         from mcp_server.server import list_transactions
-        from banking import services
 
         for _ in range(25):
             services.deposit(db_user.account, Decimal("1.00"))
-        result = list_transactions(username="alice")
-        assert result["count"] == 20
 
-    def test_amount_and_balance_are_strings(self, db_user):
+        default_result = list_transactions(session_token=api_session)
+        capped_result = list_transactions(session_token=api_session, limit=200)
+
+        assert default_result["count"] == 20
+        assert capped_result["count"] == 25
+
+    def test_amount_balance_counterparty_and_description_serialization(
+        self, funded_user, db_recipient, api_session
+    ):
         from mcp_server.server import list_transactions
-        from banking import services
 
-        services.deposit(db_user.account, Decimal("10.00"))
-        result = list_transactions(username="alice")
+        services.transfer(
+            funded_user.account,
+            db_recipient.phone_number,
+            Decimal("30.00"),
+            description="Lunch split",
+        )
+
+        result = list_transactions(session_token=api_session)
         txn = result["transactions"][0]
+
         assert isinstance(txn["amount"], str)
         assert isinstance(txn["balance_after"], str)
+        assert txn["counterparty_username"] == "bob"
+        assert txn["counterparty_phone"] == "91234567"
+        assert txn["description"] == "Lunch split"
+        assert "id" in txn
+        assert "timestamp" in txn
 
-    def test_unknown_username_returns_error(self):
+    def test_missing_session_token_returns_session_error(self, db_user):
         from mcp_server.server import list_transactions
 
-        result = list_transactions(username="nobody")
-        assert "error" in result
+        result = list_transactions(session_token="")
 
-    def test_no_session_token_required(self, db_user):
-        from mcp_server.server import list_transactions
-
-        result = list_transactions(username="alice")
-        assert "error" not in result
-
-
-@pytest.mark.django_db
-class TestListBusinessTransactions:
-    def test_empty_returns_zero_count(self, db_business):
-        from mcp_server.server import list_business_transactions
-
-        result = list_business_transactions(identifier="202312345A")
-        assert result == {"transactions": [], "count": 0}
-
-    def test_returns_transactions(self, db_business):
-        from mcp_server.server import list_business_transactions
-        from banking import services
-
-        services.deposit_to_business(db_business, Decimal("100.00"))
-        result = list_business_transactions(identifier="202312345A")
-        assert result["count"] == 1
-        assert result["transactions"][0]["amount"] == "100.00"
-
-    def test_response_has_no_counterparty_username(self, db_business):
-        from mcp_server.server import list_business_transactions
-        from banking import services
-
-        services.deposit_to_business(db_business, Decimal("100.00"))
-        result = list_business_transactions(identifier="202312345A")
-        assert "counterparty_username" not in result["transactions"][0]
-
-    def test_transaction_type_filter(self, db_business):
-        from mcp_server.server import list_business_transactions
-        from banking import services
-
-        services.deposit_to_business(db_business, Decimal("100.00"))
-        result = list_business_transactions(
-            identifier="202312345A", transaction_type="DEPOSIT"
-        )
-        assert result["count"] == 1
-
-    def test_unknown_identifier_returns_error(self):
-        from mcp_server.server import list_business_transactions
-
-        result = list_business_transactions(identifier="UNKNOWN")
-        assert "error" in result
+        assert result == {"error": "Session expired or invalid. Please log in again."}

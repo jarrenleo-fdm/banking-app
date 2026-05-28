@@ -2,6 +2,19 @@
 
 A Django-based banking application supporting personal and business accounts, fund transfers, and bill payments.
 
+## MCP API Keys
+
+Signed-in users can create API keys for MCP clients at `/accounts/api-keys/`.
+Key creation requires the current account password, stores only a hashed secret,
+and displays the full key exactly once. If the key is lost, create a replacement
+and revoke the old key from the same page.
+
+MCP clients can authenticate with the generated key through `login_with_api_key`.
+The tool returns the same short-lived `session_token` used by password-based MCP
+login, and protected tools continue to enforce the owning user's personal,
+manager, or authoriser permissions. Revoked keys cannot log in, and sessions
+created from a revoked key are rejected on protected actions.
+
 ## Data Models
 
 ### Entity Relationship Diagram

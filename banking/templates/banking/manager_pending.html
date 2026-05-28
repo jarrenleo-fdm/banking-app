@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% load humanize %}
+{% block title %}Pending Transactions{% endblock %}
+{% block page_title %}Pending Transactions{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-hdr">
+    <h2 style="margin-bottom: 0">Pending Transactions</h2>
+    <a class="panel-link" href="{% url 'banking:dashboard' %}">Back to Dashboard</a>
+  </div>
+  {% if pending_txns %}
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Amount</th>
+        <th>Description</th>
+        <th>Submitted</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for pt in pending_txns %}
+      <tr>
+        <td>{{ pt.get_transaction_type_display }}</td>
+        <td><span class="amount debit">${{ pt.amount|floatformat:2|intcomma }}</span></td>
+        <td>{{ pt.description|default:"—" }}</td>
+        <td>{{ pt.created_at }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No pending transactions.</p>
+  {% endif %}
+</div>
+
+{% endblock %}

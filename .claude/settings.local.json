@@ -1,7 +1,31 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pre-commit run *)"
+      "Bash(pre-commit run *)",
+      "mcp__banking-mcp__login",
+      "mcp__banking-mcp__list_transactions",
+      "mcp__banking-mcp__deposit_funds",
+      "mcp__banking-mcp__list_business_transactions",
+      "mcp__banking-mcp__get_business_account",
+      "mcp__banking-mcp__get_account",
+      "mcp__banking-mcp__list_billers",
+      "mcp__banking-mcp__transfer_funds",
+      "Bash(python manage.py shell -c \"from accounts.models import Account; accounts = Account.objects.all\\(\\); [print\\(f'{a.email}: {a.api_keys.all\\(\\)}'\\) for a in accounts]\")",
+      "Bash(python manage.py shell -c \"from accounts.models import Account; accounts = Account.objects.all\\(\\); print\\(list\\(accounts.values\\('email', 'id'\\)\\)\\)\")",
+      "Bash(python3 manage.py shell -c \"from accounts.models import Account; accounts = Account.objects.all\\(\\); print\\(list\\(accounts.values\\('email', 'id'\\)\\)\\)\")",
+      "Bash(python3 manage.py shell -c \"from django.contrib.auth import get_user_model; User = get_user_model\\(\\); print\\(list\\(User.objects.values\\('email', 'username', 'id'\\)[:5]\\)\\)\")",
+      "Bash(python3 manage.py shell -c ' *)",
+      "mcp__banking-mcp__login_with_api_key",
+      "Bash(python3 -m pytest mcp_server/tests/test_auth.py -q)",
+      "mcp__banking-mcp__add_biller",
+      "mcp__banking-mcp__pay_bill",
+      "mcp__banking-mcp__logout",
+      "mcp__banking-mcp__create_personal_account",
+      "Bash(python3 -c ' *)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "banking-mcp"
+  ]
 }

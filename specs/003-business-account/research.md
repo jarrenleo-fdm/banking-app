@@ -96,6 +96,29 @@ deterministic, clearly demo data, and provably unique within the query.
 
 ---
 
+## Decision 7 — Authoriser immediate execution via dedicated service functions (FR-008a)
+
+**Decision**: Three new service functions — `withdraw_from_business(ba, amount)`,
+`transfer_from_business(ba, amount, recipient_phone)`, and
+`pay_bill_from_business(ba, amount, category, reference)` — execute the operation immediately and
+create a `BusinessTransaction` record, bypassing the `PendingTransaction` queue entirely.
+
+**Rationale**: The authoriser is the only approver in a 1:1 model. If the authoriser's own
+outgoing transactions entered the pending queue, the authoriser would need to approve their own
+submission — a deadlock. Immediate execution eliminates that path cleanly and is the behaviour
+mandated by FR-008a. Reusing the same `withdraw_from_business` call path also means the 7,000
+floor (FR-012(b)) is enforced once in the service layer and applies to both direct submission and
+pending approval.
+
+**Alternatives considered**:
+- Route authoriser submissions through the existing pending queue with a self-approval bypass —
+  rejected; adds conditional logic across approve/reject views and obscures the "no pending record"
+  invariant.
+- Separate "authoriser submission" endpoint — rejected; the same four transaction views already
+  branch on role; adding an authoriser branch is consistent with the existing pattern.
+
+---
+
 ## Decision 8 — No saved billers for business accounts
 
 **Decision**: Business account bill payments submit biller category, reference, and amount inline

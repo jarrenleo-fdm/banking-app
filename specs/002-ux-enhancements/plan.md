@@ -1,42 +1,37 @@
 # Implementation Plan: UX Enhancements
 
-**Branch**: `002-ux-enhancements` | **Date**: 2026-05-21 | **Spec**: [spec.md](spec.md)
+**Branch**: `007-mcp-api-key-auth` (feature pinned to `specs/002-ux-enhancements`) | **Date**: 2026-05-28 | **Spec**: [spec.md](spec.md)
 **Input**: Feature specification from `specs/002-ux-enhancements/spec.md`
 
 ## Summary
 
-Five user-facing improvements to the existing Django banking application: a real-time password criteria checklist on registration and password reset, counterparty names and transaction IDs visible in transaction history, an optional description field on transfers (stored on both transaction records and shown in history), and an optional initial balance field on registration. No database migrations are required — `Transaction.description` and `Transaction.counterparty` already exist in the schema.
+Six user-facing improvements to the existing Django banking application: real-time password criteria guidance on registration, password reset, and signed-in password change; counterparty names and transaction IDs in transaction history; optional transfer descriptions; optional initial balance on registration; and a signed-in user details and credentials update flow for name, username, email address, phone number, and password. No model schema changes are required because the affected fields already exist.
 
 ## Technical Context
 
-**Language/Version**: Python 3.11+ / Django 5.2 (LTS)
+**Language/Version**: Python 3.11+ / Django 5.2
 **Primary Dependencies**: Django 5.2, django-environ, Argon2 password hasher
-**Storage**: SQLite3 (Prototype/Learning tier — `@transaction.atomic` without `select_for_update()`)
-**Testing**: pytest + pytest-django + factory-boy; coverage enforced via pytest-cov
-**Target Platform**: Local development server; Linux server (production)
-**Project Type**: Django web application (server-rendered HTML forms)
-**Performance Goals**: Standard web application — page loads under 2 seconds on the development server
-**Constraints**: No JavaScript build pipeline; inline or single static JS file only; no new Python dependencies
-**Scale/Scope**: Single-user development / prototype; no concurrent user concerns at this tier
+**Storage**: SQLite3 prototype storage
+**Testing**: pytest + pytest-django + factory-boy; coverage via pytest-cov
+**Target Platform**: Local development server; Linux server before production hardening
+**Project Type**: Django web application with server-rendered HTML templates
+**Performance Goals**: Standard web application page loads under 2 seconds on the development server
+**Constraints**: No JavaScript build pipeline; no new Python dependencies; preserve existing custom user model and phone-number normalization
+**Scale/Scope**: Prototype / learning application; one personal account per user; business-account role flows remain out of scope for this feature
 
 ## Constitution Check
 
 **Active Tier**: Prototype / Learning
 
+*GATE: Pass before Phase 0 research. Re-check after Phase 1 design.*
+
 | Principle | Status | Notes |
 |---|---|---|
-| I. Security First | ✅ Pass | Custom password validator enforces character class rules; OWASP A07 mitigated. Description is plain text — no XSS risk in server-rendered Django templates (auto-escaped). |
-| II. Test-First | ✅ Pass | Tests written before implementation per plan (see task ordering in tasks.md) |
-| III. SonarQube | ⚠ Prototype deviation | SonarQube not required; flake8 + pylint + bandit via pre-commit are compensating controls (already configured) |
-| IV. Auditability | ✅ Pass | Transfer description is stored on both transaction records; transaction ID is the PK, already immutable |
-| V. Data Integrity | ✅ Pass | `transfer()` remains `@transaction.atomic`; description is an additive parameter with no balance impact. Initial balance update uses `save(update_fields=["balance"])` inside the signup view. |
-
-**Complexity Tracking** (Prototype tier deviations):
-
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|---|---|---|
-| No SonarQube CI | Prototype/Learning tier — operational infrastructure intentionally minimal | Pre-commit flake8/pylint/bandit are the compensating controls already in place |
-| SQLite3 without `select_for_update()` | Prototype/Learning tier | `@transaction.atomic` with SQLite3 issues exclusive write lock; sufficient for single-user prototype |
+| I. Security & Confidentiality First | Pass | Password criteria are enforced server-side as well as shown in the UI. User details and credential updates require authentication, validate unique identifiers, and do not expose another user's private details in errors. Password changes require the current password. |
+| II. Test-First Development | Pass | Implementation must add failing tests before each story change, including profile, username, and password-change validation tests. |
+| III. Code Quality Gates | Prototype deviation | SonarQube CI is not required in this tier; local flake8, pylint, and bandit remain required compensating controls. |
+| IV. Auditability & Observability | Pass | Transaction records remain immutable. User details and credential updates should emit a security-relevant audit/log event that identifies the acting user and changed field names without logging raw PII or passwords. |
+| V. Data Integrity & Transactional Consistency | Pass | Money movement continues through existing atomic services using Decimal. The initial balance path delegates to deposit so account balances reconcile against transaction history. Profile and credential updates do not mutate balances. |
 
 ## Project Structure
 
@@ -44,90 +39,107 @@ Five user-facing improvements to the existing Django banking application: a real
 
 ```text
 specs/002-ux-enhancements/
-├── plan.md              # This file
-├── research.md          # Phase 0 — findings and decisions
-├── data-model.md        # Phase 1 — entity and validation details
-├── quickstart.md        # Phase 1 — how to verify the feature locally
+├── plan.md
+├── research.md
+├── data-model.md
+├── quickstart.md
 ├── contracts/
-│   └── services.md      # Phase 1 — service layer contract changes
-└── tasks.md             # Phase 2 — generated by /speckit-tasks
+│   ├── services.md
+│   └── views.md
+└── tasks.md
 ```
 
 ### Source Code (affected files)
 
 ```text
 accounts/
-├── validators.py            # NEW — PasswordComplexityValidator
-├── forms.py                 # MODIFIED — add initial_balance to RegistrationForm
-├── views.py                 # MODIFIED — set initial balance after user.save()
+├── forms.py                         # RegistrationForm, UserDetailsForm, PasswordChangeForm usage
+├── validators.py                    # PasswordComplexityValidator
+├── views.py                         # signup plus user details and credential update view
+├── urls.py                          # user details route
 ├── tests/
-│   ├── test_models.py       # existing
-│   └── test_views.py        # MODIFIED — add registration + password reset tests
+│   ├── test_forms.py
+│   ├── test_validators.py
+│   └── test_views.py
 └── templates/accounts/
-    ├── signup.html           # MODIFIED — add password criteria checklist
-    └── password_reset_confirm.html  # MODIFIED — add password criteria checklist
+    ├── signup.html
+    ├── password_reset_confirm.html
+    └── profile.html                 # user details and credential update page
 
 banking/
-├── forms.py                 # MODIFIED — add description field to TransferForm
-├── services.py              # MODIFIED — transfer() accepts description param
+├── forms.py                         # TransferForm description field
+├── services.py                      # transfer(description=...)
 ├── tests/
-│   ├── test_services.py     # MODIFIED — add description propagation tests
-│   └── test_views.py        # MODIFIED — add transfer description + history display tests
+│   ├── test_services.py
+│   └── test_views.py
 └── templates/banking/
-    ├── transactions.html     # MODIFIED — add TX ID column, description row, counterparty label
-    └── dashboard.html        # MODIFIED — add description field to transfer card
+    ├── dashboard.html
+    └── transactions.html
 
 banking_app/
-└── settings.py              # MODIFIED — register PasswordComplexityValidator
+└── settings.py                      # PasswordComplexityValidator registration
 
 static/
 └── js/
-    └── password-criteria.js  # NEW — criteria checklist logic (or inline in templates)
+    └── password-criteria.js
 ```
+
+**Structure Decision**: Use the existing `accounts` app for authentication, identity, and credential changes; the existing `banking` app for transaction and transfer UX changes; and a single static JavaScript file for password criteria behavior. User details, username, and password updates are account-management concerns and do not belong in `banking/services.py`.
+
+## Complexity Tracking
+
+| Violation | Why Needed | Simpler Alternative Rejected Because |
+|---|---|---|
+| SonarQube CI not required | Prototype / Learning tier keeps operational infrastructure minimal | Local flake8, pylint, bandit, and pytest are the existing compensating controls |
+| SQLite3 without row-level locking | Prototype / Learning tier uses SQLite3 | Existing `@transaction.atomic` money services are sufficient for the single-user prototype tier |
+
+## Phase 0: Research
+
+Research outputs are captured in [research.md](research.md). Key decisions:
+
+- Keep existing database schema; `CustomUser`, `Account`, and `Transaction` already contain the required fields.
+- Add a backend password validator so visual password criteria match enforced rules.
+- Pass transfer descriptions through the existing banking service layer.
+- Use the existing deposit service for non-zero initial balance so balance history reconciles.
+- Add a dedicated authenticated user details form and route; username is editable with format and uniqueness validation.
+- Add a signed-in password change form that requires the current password and reuses the same password criteria.
+- Log user details and credential updates as security-relevant events without raw PII or passwords.
+
+## Phase 1: Design & Contracts
+
+Design outputs:
+
+- [data-model.md](data-model.md): existing entity fields, validation rules, and profile/credential update state behavior.
+- [contracts/services.md](contracts/services.md): modified `transfer()` service contract, password validator contract, and account update form/view responsibilities.
+- [contracts/views.md](contracts/views.md): account-facing view/form contracts for signup, password reset criteria, and user details and credential updates.
+- [quickstart.md](quickstart.md): local verification steps for all six UX stories.
+
+**Post-Design Constitution Check**: Pass. The design adds no new schema, keeps money mutations inside existing atomic services, requires tests first, requires current-password verification for password changes, and includes non-PII audit/log events for user details and credential updates.
 
 ## Implementation Order
 
-Tasks must follow the Red-Green-Refactor cycle (Principle II). For each change cluster:
+Tasks should continue to follow Red-Green-Refactor:
 
-1. Write failing tests
-2. Implement to make them pass
-3. Run pre-commit hooks (flake8, pylint, bandit)
+1. Write failing tests for the story or validation branch.
+2. Implement the smallest change that passes.
+3. Run the focused pytest target.
+4. Run pre-commit before handoff when practical.
 
-### Cluster A — Password Criteria (accounts app)
+Recommended story order:
 
-1. `accounts/validators.py` — `PasswordComplexityValidator` class
-2. `settings.py` — register validator in `AUTH_PASSWORD_VALIDATORS`
-3. Tests: `accounts/tests/test_views.py` — test signup rejects passwords missing each character class; test password reset flow rejects same
-4. `accounts/templates/accounts/signup.html` — criteria checklist with JS
-5. `accounts/templates/accounts/password_reset_confirm.html` — same checklist
-6. `static/js/password-criteria.js` — or inline `<script>`
-
-### Cluster B — Transfer Description (banking app)
-
-1. Tests: `banking/tests/test_services.py` — test description stored on both tx records
-2. `banking/services.py` — `transfer()` accepts `description: str = ""`
-3. Tests: `banking/tests/test_views.py` — test description in transfer POST, visible in history
-4. `banking/forms.py` — `TransferForm` adds optional `description` CharField(max_length=200)
-5. `banking/views.py` — `transfer_view` passes `description` to service
-6. `banking/templates/banking/dashboard.html` — add description field to transfer form card
-7. `banking/templates/banking/transactions.html` — show description when present
-
-### Cluster C — Transaction History Display (banking app)
-
-1. Tests: `banking/tests/test_views.py` — test transaction ID visible, counterparty name visible in history template
-2. `banking/templates/banking/transactions.html` — add TX ID column; ensure counterparty label is present (column exists, verify name is shown)
-
-### Cluster D — Initial Balance on Registration (accounts app)
-
-1. Tests: `accounts/tests/test_views.py` — test signup with initial_balance creates correct account balance; test blank/zero defaults to 0; test negative rejected
-2. `accounts/forms.py` — `RegistrationForm` adds optional `initial_balance` DecimalField
-3. `accounts/views.py` — `signup_view` reads `initial_balance` from form and updates account after save
-4. `accounts/templates/accounts/signup.html` — form already renders all fields; no template change needed (field will auto-render)
+1. Password criteria guidance and backend enforcement.
+2. Transfer counterparty visibility and transaction IDs.
+3. Transfer descriptions.
+4. User details and credential update flow.
+5. Optional initial balance on registration.
+6. Full regression and manual quickstart verification.
 
 ## Production Migration TODO
 
-Before real users or real money are involved, this project MUST migrate to the Production tier:
-- Switch from SQLite3 to PostgreSQL
-- Add `select_for_update()` to balance-modifying service functions
-- Integrate SonarQube into CI and enforce the Quality Gate on every pull request
-- See `specs/001-core-banking-operations/plan.md` for the existing migration TODO
+Before real users or real money are involved, migrate to the Production tier:
+
+- Switch from SQLite3 to PostgreSQL.
+- Add row-level locking to balance-modifying service functions where appropriate.
+- Integrate SonarQube into CI and enforce the Quality Gate.
+- Review HTTPS, secure cookies, CSRF, HSTS, and deployment settings with `python manage.py check --deploy`.
+- Replace development email/password-reset assumptions with production SMTP and operational monitoring.

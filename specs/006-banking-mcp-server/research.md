@@ -1,150 +1,135 @@
-# Research: Banking MCP Server
+# Research: Personal Banking MCP Server
 
-## 1. MCP Python SDK
+## 1. API-Key-Only MCP Authentication
 
-**Decision**: Use `FastMCP` from the `mcp` package (decorator-based API).
+**Decision**: `login_with_api_key` is the only MCP login tool. Username-and-password MCP
+login is removed from the 006 tool surface.
 
-**Rationale**: FastMCP is the idiomatic high-level interface provided by the official SDK.
-It reduces tool registration to a single `@mcp.tool()` decorator and handles JSON Schema
-generation from Python type annotations automatically. The low-level `Server` class is
-unnecessary here since we have no streaming or resource needs beyond tool calls.
-
-**Transport**: `stdio` — the standard transport for desktop and server-side AI agents
-(Claude Desktop, Cursor, etc.). The server process is launched by the AI client with its
-stdin/stdout wired to the MCP JSON-RPC channel.
-
-**Version pin**: `mcp[cli]>=1.9,<2` (current stable series; `[cli]` includes `fastmcp`).
+**Rationale**: The overhauled spec requires MCP clients to authenticate without receiving
+or storing account passwords. API keys are user-owned, revocable, and already covered by
+the API-key feature's one-time secret display, hashing, last-used metadata, and audit
+events.
 
 **Alternatives considered**:
-- Low-level `Server` class — more verbose, no advantage for a pure tool server.
-- HTTP/SSE transport — not needed; stdio covers all target environments.
+- Keep `login(username, password)` beside API keys - rejected because the spec explicitly
+  allows logins only through API keys.
+- Accept API keys directly on every protected tool - rejected because short-lived session
+  tokens reduce repeated exposure of the raw API key.
 
----
+## 2. Protected Reads
 
-## 2. Django ORM in a Standalone Process
+**Decision**: Account summary, transaction listing, and biller listing require a valid
+API-key-backed session token.
 
-**Decision**: The MCP server is a standalone Python package (`mcp_server/`) that calls
-`django.setup()` at import time via the entry point.
-
-**Rationale**: The spec requires the MCP server to share the same database as the banking
-app. A standalone process that configures Django settings and calls `django.setup()` gets
-full ORM access without becoming a Django "app" (no migrations, no views, not listed in
-`INSTALLED_APPS`).
-
-**Entry point pattern**:
-```python
-import os
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "banking_app.settings")
-import django
-django.setup()
-# only then import models / services
-```
+**Rationale**: Personal balances, transaction history, and billers are private banking data.
+The old public-read MCP behavior conflicts with the revised specification and with least
+privilege.
 
 **Alternatives considered**:
-- A new Django management command — would require running through `manage.py`, complicating
-  stdio transport setup.
-- A separate microservice that calls the banking app's HTTP endpoints — explicitly out of
-  scope per spec Assumptions.
+- Keep public reads for convenience - rejected because it lets any MCP client query private
+  account data.
+- Require tokens only for writes - rejected because transaction history and biller metadata
+  reveal sensitive financial behavior.
 
----
+## 3. Personal-Only MCP Tool Surface
 
-## 3. Identifier Mapping: Username vs Phone Number
+**Decision**: Remove all MCP business account tools from this feature. The 006 tool surface
+contains only personal account tools plus open personal signup and API-key login.
 
-**Decision**: MCP tools accept `username` as the account identifier for personal accounts.
-The MCP layer resolves usernames to `Account` objects (and phone numbers where needed)
-before delegating to `banking.services`.
-
-**Rationale**: Read tools (FR-001) already key on username. Using username everywhere gives
-models a single consistent identifier. The existing `services.transfer()` accepts
-`recipient_phone`; the MCP `transfer_funds` tool will look up the recipient by username and
-extract their phone number to pass to the service.
-
-**Lookup path**: `User.objects.get(username=...) → user.account` for personal accounts;
-`BusinessAccount.objects.get(uen=...)` or `get(company_name__iexact=...)` for business.
-
----
-
-## 4. FR-015 vs. FR-016/017/021 — Stateless Server + Session Tokens
-
-**Decision**: Interpret FR-015 as "no banking domain state is retained between calls" (no
-pending cart, no multi-step wizard). Session tokens are an orthogonal security mechanism
-required by FR-016 through FR-021 and are explicitly part of the spec.
-
-**Implementation**: An in-memory token store — a plain Python `dict[str, TokenRecord]`
-held in the server process — is sufficient for the Prototype tier. Tokens expire after
-**15 minutes** of inactivity (sliding window on last successful use). This value is a
-configuration constant `MCP_SESSION_TIMEOUT_MINUTES` in the server module.
-
-**Why 15 minutes**: Standard short-lived web session default; short enough to limit
-exposure if a token is captured, long enough for a typical AI agent task.
+**Rationale**: Business accounts have separate manager/authoriser workflows and approval
+rules. The revised spec intentionally narrows MCP access to personal banking.
 
 **Alternatives considered**:
-- Django cache backend (Redis/Memcache) — production-grade but introduces an external
-  dependency not warranted at prototype tier.
-- Django database sessions — durable across restarts but adds DB writes for every read-tool
-  call; rejected as over-engineering for this tier.
+- Keep read-only business tools - rejected because the user requested all business account
+  tools be removed.
+- Keep authoriser approval tools - rejected because business approval is out of scope for
+  this MCP feature after the overhaul.
 
----
+## 4. Target Account Resolution
 
-## 5. Decimal Validation (FR-013)
+**Decision**: Protected personal tools derive the account from the authenticated session
+user instead of accepting a username or account identifier.
 
-**Decision**: A thin `_validate_amount(amount: Decimal)` wrapper in the MCP server layer
-enforces the two-decimal-places rule before delegating to `banking.services`.
-
-**Rationale**: The existing `banking.services._validate_amount` only checks positivity.
-Adding the decimal-places check there would touch tested, production service code beyond
-the scope of this feature. A separate MCP-layer validator avoids that risk.
-
-**Implementation**:
-```python
-def _mcp_validate_amount(amount: Decimal) -> None:
-    if amount <= 0:
-        raise ValueError("Amount must be greater than zero.")
-    if amount != amount.quantize(Decimal("0.01")):
-        raise ValueError("Amount must have at most two decimal places.")
-```
-
----
-
-## 6. Pending Transaction Creation — Scope Boundary
-
-**Decision**: The MCP server exposes `list_pending_transactions`, `approve_transaction`,
-and `reject_transaction` only. Creating pending transactions (withdrawal, transfer, bill
-payment) is **out of scope** for v1.
-
-**Rationale**: The spec (User Story 6) explicitly frames the MCP role as that of an
-*authoriser*: listing, approving, and rejecting. Business managers create pending
-transactions through the existing web UI. This is not an omission; it is the intended
-boundary.
-
----
-
-## 7. `create_personal_account` Required Fields
-
-**Decision**: The `create_personal_account` tool accepts `name`, `username`, `email`,
-`phone_number`, `password`, and optional `initial_deposit` — matching the web signup form.
-
-**Rationale**: FR-023 says "accepts a username, password, and an optional initial deposit"
-as a shorthand. However, `accounts.CustomUser` (model) has four required unique fields:
-`username`, `email`, `name`, and `phone_number`. Omitting any would make account creation
-impossible. The MCP tool mirrors the web form fields exactly.
-
-**Implication**: `initial_deposit` validation uses `amount >= 0`; the existing
-`_mcp_validate_amount` checks `amount > 0`, so a small guard (`amount == 0` bypasses the
-service call) is added in the tool handler rather than changing the shared validator.
+**Rationale**: Deriving the target account from the token eliminates wrong-owner inputs for
+reads and self-service writes. It directly enforces "operate only on my own account" at the
+MCP boundary.
 
 **Alternatives considered**:
-- Auto-generate email/phone (like `create_business_account_mock`) — inappropriate for a
-  "real" personal user who would need to receive communications or log in later.
+- Keep `username` on protected tools and compare it to the token owner - workable, but
+  more error-prone and leaks a user-enumeration shaped interface.
+- Accept account IDs - rejected because personal users do not need to know internal IDs and
+  the existing domain model is user/account-centric.
 
----
+## 5. Transfer Recipient Identifier
+
+**Decision**: `transfer_funds` accepts `recipient_phone`, not recipient username.
+
+**Rationale**: Core banking specifies phone-number recipient lookup. The MCP contract should
+match the user-facing banking behavior and avoid maintaining a separate recipient identity
+model.
+
+**Alternatives considered**:
+- Transfer by username - rejected because it diverges from the core banking specification.
+- Transfer by account ID - rejected because internal account IDs are not user-facing.
+
+## 6. Session Token Store and Revocation
+
+**Decision**: Continue using an in-memory token store for prototype sessions, but every
+token stores the backing API key identifier and validates that the key remains active.
+Tokens expire after 15 minutes of inactivity by default.
+
+**Rationale**: The prototype already runs one MCP server process per connected client. A
+sliding in-memory token is sufficient locally, while the backing key check ensures web
+revocation immediately blocks protected MCP actions from existing sessions.
+
+**Alternatives considered**:
+- Persist MCP sessions in the database - rejected for prototype scope and because the raw
+  API key is not stored in tokens.
+- Cache sessions in Redis - production-grade, but introduces infrastructure not required
+  for this tier.
+
+## 7. Amount Validation
+
+**Decision**: The MCP layer validates money input strings with `Decimal`, rejecting
+non-numeric values, zero or negative write amounts, and more than two decimal places before
+delegating to banking services.
+
+**Rationale**: MCP tool callers send JSON-compatible values, so accepting string amounts
+preserves precision and avoids float parsing. The two-decimal rule is a tool contract
+requirement and should fail before any service call can mutate state.
+
+**Alternatives considered**:
+- Accept numbers and coerce them to `Decimal` - rejected because JSON numbers can be parsed
+  as floating-point values by clients.
+- Rely only on existing service validation - rejected because existing services check
+  positivity but do not own the MCP-specific decimal-place contract.
+
+## 8. Personal Account Signup
+
+**Decision**: `create_personal_account` mirrors the web signup fields and validation:
+name, username, email, phone number, password, and optional initial balance. It does not
+create or return an API key.
+
+**Rationale**: The custom user model and account signal already define personal account
+creation. API key creation has a separate lifecycle with one-time secret display and user
+confirmation, so bundling API key creation into MCP signup would bypass that security model.
+
+**Alternatives considered**:
+- Return an API key from signup - rejected because API key generation belongs to the 007
+  API-key management feature.
+- Require an API key to create a personal account - rejected because signup creates the
+  identity that later owns keys.
 
 ## 9. Testing Approach
 
-**Decision**: pytest + pytest-django, following the existing project convention.
+**Decision**: Use pytest + pytest-django with MCP handler tests in `mcp_server/tests/`.
+Tests are written first and grouped by user story.
 
-- Unit tests cover tool handler functions with mocked services.
-- Integration tests hit the SQLite3 test database (same DB used by existing tests).
-- Test file location: `mcp_server/tests/`.
+**Rationale**: The project constitution requires test-first development, and the existing
+repository already uses pytest as the primary test runner. MCP handlers can be exercised as
+plain Python functions with Django test database fixtures.
 
-**Coverage target**: 80 % on new code (Principle III gate, Prototype tier).
+**Alternatives considered**:
+- Manual MCP client testing only - rejected because it is not repeatable enough for money
+  and security-sensitive behavior.
+- Django's built-in test runner - rejected because the repo standard is pytest.

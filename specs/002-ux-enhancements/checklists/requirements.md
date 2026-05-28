@@ -31,4 +31,4 @@
 
 ## Notes
 
-All items pass. Spec is ready to proceed to `/speckit-plan`.
+All items pass. Revalidated on 2026-05-28 after adding username and password changes to the user details update flow. Spec remains ready for planning updates.

@@ -103,6 +103,111 @@
   {% endif %}
 </div>
 
+{% elif is_authoriser %}
+
+<div class="balance-hero">
+  <div class="balance-hero-inner">
+    <div>
+      <p class="balance-label">Business Balance</p>
+      <p class="balance">${{ balance|floatformat:2|intcomma }}</p>
+      <p class="account-sub">
+        <span class="account-type-badge">Business</span>
+        &nbsp;{{ business_account.company_name }}
+      </p>
+    </div>
+  </div>
+</div>
+
+{% if authoriser_pending_count > 0 %}
+<div class="panel" style="margin-bottom: 16px;">
+  <a class="panel-link" href="{% url 'banking:authoriser_queue' %}">Pending Approvals ({{ authoriser_pending_count }})</a>
+</div>
+{% endif %}
+
+<div class="grid">
+  <div class="card">
+    <h2>Deposit</h2>
+    <form method="post" action="{% url 'banking:deposit' %}" novalidate>
+      {% csrf_token %} {{ deposit_form.non_field_errors }}
+      <label for="{{ deposit_form.amount.id_for_label }}">Amount</label>
+      {{ deposit_form.amount }} {{ deposit_form.amount.errors }}
+      <p><button type="submit">Deposit</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Withdraw</h2>
+    <form method="post" action="{% url 'banking:withdraw' %}" novalidate>
+      {% csrf_token %} {{ withdraw_form.non_field_errors }}
+      <label for="{{ withdraw_form.amount.id_for_label }}">Amount</label>
+      {{ withdraw_form.amount }} {{ withdraw_form.amount.errors }}
+      <p><button type="submit">Withdraw</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Transfer</h2>
+    <form method="post" action="{% url 'banking:transfer' %}" novalidate>
+      {% csrf_token %} {{ transfer_form.non_field_errors }}
+      <label for="{{ transfer_form.recipient_phone.id_for_label }}">Recipient phone</label>
+      {{ transfer_form.recipient_phone }} {{ transfer_form.recipient_phone.errors }}
+      <label for="{{ transfer_form.amount.id_for_label }}">Amount</label>
+      {{ transfer_form.amount }} {{ transfer_form.amount.errors }}
+      <p><button type="submit">Send</button></p>
+    </form>
+  </div>
+
+  <div class="card">
+    <h2>Pay Bill</h2>
+    <form method="post" action="{% url 'banking:pay_bill' %}" novalidate>
+      {% csrf_token %} {{ bill_pay_form.non_field_errors }}
+      <label for="{{ bill_pay_form.category.id_for_label }}">Category</label>
+      {{ bill_pay_form.category }} {{ bill_pay_form.category.errors }}
+      <label for="{{ bill_pay_form.reference.id_for_label }}">Reference</label>
+      {{ bill_pay_form.reference }} {{ bill_pay_form.reference.errors }}
+      <label for="{{ bill_pay_form.amount.id_for_label }}">Amount</label>
+      {{ bill_pay_form.amount }} {{ bill_pay_form.amount.errors }}
+      <p><button type="submit">Pay Bill</button></p>
+    </form>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-hdr">
+    <h2 style="margin-bottom: 0">Recent Transactions</h2>
+  </div>
+  {% if recent_transactions %}
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Amount</th>
+        <th>Date / Time</th>
+        <th>Balance After</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for transaction in recent_transactions %}
+      <tr>
+        <td>{{ transaction.get_transaction_type_display }}</td>
+        <td>
+          <span class="amount {% if transaction.transaction_type == 'DEPOSIT' %}credit{% else %}debit{% endif %}">
+            ${{ transaction.amount|floatformat:2|intcomma }}
+          </span>
+        </td>
+        <td>{{ transaction.timestamp }}</td>
+        <td>
+          <span class="amount">${{ transaction.balance_after|floatformat:2|intcomma }}</span>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty-state">No transactions yet.</p>
+  {% endif %}
+</div>
+
 {% else %}
 
 <div class="balance-hero">

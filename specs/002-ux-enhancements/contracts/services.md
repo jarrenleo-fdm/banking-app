@@ -1,6 +1,6 @@
 # Service Layer Contracts: UX Enhancements
 
-The service layer in `banking/services.py` is the internal contract boundary between views and the data layer. One function signature changes in this feature.
+The service layer in `banking/services.py` is the internal contract boundary between views and the data layer. One banking service function signature changes in this feature. The user details and credential update flow is handled by the accounts app form/view layer and does not add a banking service contract.
 
 ---
 
@@ -28,7 +28,9 @@ transfer(
 
 ## `deposit` / `withdraw` (unchanged)
 
-These functions are not modified. Their signatures and behaviour remain as-is.
+`withdraw` is not modified. `deposit` keeps its existing signature and validation behavior.
+
+`deposit` is used by registration when an optional initial balance greater than zero is submitted, so the opening balance is reflected in immutable personal transaction history.
 
 ---
 
@@ -44,4 +46,16 @@ class PasswordComplexityValidator:
         # Returns a human-readable description of the requirements
 ```
 
-Registered in `settings.AUTH_PASSWORD_VALIDATORS`. Called automatically by `validate_password()` in `RegistrationForm.clean()` and by Django's built-in `SetPasswordForm` during password reset.
+Registered in `settings.AUTH_PASSWORD_VALIDATORS`. Called automatically by `validate_password()` in `RegistrationForm.clean()`, Django's built-in `SetPasswordForm` during password reset, and Django's authenticated password-change form.
+
+---
+
+## User details and credential update (no banking service)
+
+No new banking service is introduced for profile updates.
+
+**Behaviour**:
+- The accounts form/view layer updates only the authenticated user's `name`, `username`, `email`, and `phone_number`.
+- Username, email, and phone-number uniqueness checks exclude the current user and reject conflicts with other accounts.
+- Password changes require the authenticated user's current password, a valid new password, and matching confirmation.
+- Successful updates emit non-PII audit/log events containing the acting user id and changed field names or credential category only.

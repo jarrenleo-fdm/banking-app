@@ -56,7 +56,22 @@ python manage.py runserver
 4. Register again with the Initial Balance field left blank — balance should read $0.00
 5. Attempt to register with Initial Balance `-100` — form must reject with a validation error
 
-## 7. Static analysis
+## 7. Verify: User details and credential update
+
+1. Log in as an existing personal account user
+2. Navigate to the user details/profile page
+3. Confirm the current name, username, email address, and phone number are shown
+4. Update the name, username, email address, and phone number with valid unique values
+5. Submit the form — the page should show a success message and the new details immediately
+6. Log out and confirm the updated username can be used to log in
+7. Attempt to change username, email, or phone number to values already used by another account — the form must reject the update and keep the original details
+8. Attempt to enter an invalid username or phone number — the form must reject with a validation error
+9. Use the updated phone number as a transfer recipient from another account — the transfer lookup should use the new number
+10. Return to the profile page, enter the current password plus a valid matching new password, and submit the password change form
+11. Confirm the page shows success, the current session remains active, the old password no longer works at login, and the new password does
+12. Attempt password changes with the wrong current password, a weak new password, and mismatched confirmation — each must be rejected without changing the existing password
+
+## 8. Static analysis
 
 ```bash
 pre-commit run --all-files

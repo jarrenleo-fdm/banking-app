@@ -308,6 +308,68 @@ def create_pending_bill_payment(business_account: BusinessAccount, amount: Decim
 
 
 @transaction.atomic
+def withdraw_from_business(business_account: BusinessAccount, amount: Decimal) -> BusinessTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.select_for_update().get(pk=business_account.pk)
+    if ba.balance - amount < Decimal("7000.00"):
+        raise InsufficientFundsError("Transaction would bring balance below minimum (7,000).")
+    ba.balance -= amount
+    ba.save(update_fields=["balance"])
+    return BusinessTransaction.objects.create(
+        business_account=ba,
+        transaction_type=BusinessTransaction.WITHDRAWAL,
+        amount=amount,
+        balance_after=ba.balance,
+    )
+
+
+@transaction.atomic
+def transfer_from_business(business_account: BusinessAccount, amount: Decimal, recipient_phone: str) -> BusinessTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.select_for_update().get(pk=business_account.pk)
+    if ba.balance - amount < Decimal("7000.00"):
+        raise InsufficientFundsError("Transaction would bring balance below minimum (7,000).")
+    try:
+        recipient_account = Account.objects.get(user__phone_number=recipient_phone)
+    except Account.DoesNotExist as exc:
+        raise RecipientNotFoundError("No account found with that phone number.") from exc
+    ba.balance -= amount
+    recipient_account.balance += amount
+    ba.save(update_fields=["balance"])
+    recipient_account.save(update_fields=["balance"])
+    Transaction.objects.create(
+        account=recipient_account,
+        transaction_type=Transaction.TRANSFER_IN,
+        amount=amount,
+        balance_after=recipient_account.balance,
+    )
+    return BusinessTransaction.objects.create(
+        business_account=ba,
+        transaction_type=BusinessTransaction.TRANSFER_OUT,
+        amount=amount,
+        balance_after=ba.balance,
+        counterparty=recipient_account,
+    )
+
+
+@transaction.atomic
+def pay_bill_from_business(business_account: BusinessAccount, amount: Decimal, category: str, reference: str) -> BusinessTransaction:
+    _validate_amount(amount)
+    ba = BusinessAccount.objects.select_for_update().get(pk=business_account.pk)
+    if ba.balance - amount < Decimal("7000.00"):
+        raise InsufficientFundsError("Transaction would bring balance below minimum (7,000).")
+    ba.balance -= amount
+    ba.save(update_fields=["balance"])
+    return BusinessTransaction.objects.create(
+        business_account=ba,
+        transaction_type=BusinessTransaction.BILL_PAYMENT,
+        amount=amount,
+        balance_after=ba.balance,
+        description=f"{category} ({reference})",
+    )
+
+
+@transaction.atomic
 def approve_business_pending(pending_tx: PendingTransaction, decided_by) -> bool:
     pt = PendingTransaction.objects.select_for_update().get(pk=pending_tx.pk)
     ba = BusinessAccount.objects.select_for_update().get(pk=pt.business_account_id)

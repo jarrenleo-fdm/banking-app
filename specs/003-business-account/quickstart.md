@@ -77,6 +77,28 @@ No superuser required. All accounts are created via the public form.
 
 ---
 
+## Flow 6 — Authoriser Submits a Transaction Directly (FR-008a)
+
+1. Log in as the **authoriser** (`authoriser.acmecorp`)
+2. Dashboard shows the business account: **Acme Corp**, balance (current amount)
+3. Under **Withdraw**, enter `2000.00` and click **Withdraw**
+4. Confirm: balance **immediately decreases** by 2,000 — no pending queue entry created
+5. Transaction history shows a new **Withdrawal** record for $2,000.00
+
+No authoriser approval required — the authoriser's own transactions execute immediately.
+
+---
+
+## Flow 7 — Account Manager Views Read-Only Pending Queue (FR-009)
+
+1. As account manager (`manager.acmecorp`), submit a withdrawal (see Flow 3)
+2. Open `http://127.0.0.1:8000/banking/pending/`
+3. Confirm: the pending transaction is listed (amount, type, timestamp)
+4. Confirm: **no Approve or Reject buttons** are present — view is read-only
+5. Attempt to POST to `/banking/authorise/<id>/approve/` as the manager → **403 Forbidden**
+
+---
+
 ## Validation Checks
 
 | Scenario | Expected behaviour |
@@ -90,3 +112,6 @@ No superuser required. All accounts are created via the public form.
 | Transfer to non-existent phone number | Error: "No account found with that phone number." |
 | Visit `/business/created/` after credentials consumed | Redirect to `/business/create/` |
 | Non-authoriser visits authoriser queue | 403 Forbidden |
+| Authoriser submits withdrawal that would breach 7,000 floor | Error: "Transaction would bring balance below minimum (7,000)."; no BusinessTransaction created |
+| Non-manager visits `/banking/pending/` | 403 Forbidden |
+| Account manager attempts POST to approve/reject endpoint | 403 Forbidden |

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Profile{% endblock %}
+{% block page_title %}Profile{% endblock %}
+{% block content %}
+
+<div class="panel">
+  <div class="panel-hdr">
+    <div>
+      <h2 style="margin-bottom: 0">Your Details</h2>
+      <p class="account-sub" style="margin-top: 4px">
+        Keep your account details current for notices, transfers, and login.
+      </p>
+    </div>
+  </div>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+
+    <label for="{{ form.username.id_for_label }}">Username</label>
+    {{ form.username }}
+    {{ form.username.errors }}
+
+    <label for="{{ form.name.id_for_label }}">Name</label>
+    {{ form.name }}
+    {{ form.name.errors }}
+
+    <label for="{{ form.email.id_for_label }}">Email address</label>
+    {{ form.email }}
+    {{ form.email.errors }}
+
+    <label for="{{ form.phone_number.id_for_label }}">Phone number</label>
+    {{ form.phone_number }}
+    {{ form.phone_number.errors }}
+
+    <p>
+      <button type="submit">Save details</button>
+    </p>
+  </form>
+
+  <hr>
+
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <input type="hidden" name="form_type" value="password">
+    {{ password_form.non_field_errors }}
+
+    <label for="{{ password_form.old_password.id_for_label }}">Current password</label>
+    {{ password_form.old_password }}
+    {{ password_form.old_password.errors }}
+
+    <label for="{{ password_form.new_password1.id_for_label }}">New password</label>
+    {{ password_form.new_password1 }}
+    {{ password_form.new_password1.errors }}
+
+    <label for="{{ password_form.new_password2.id_for_label }}">Confirm new password</label>
+    {{ password_form.new_password2 }}
+    {{ password_form.new_password2.errors }}
+
+    <p>
+      <button type="submit">Update password</button>
+    </p>
+  </form>
+
+  <p>
+    <a href="{% url 'accounts:api_keys' %}">Manage API keys</a>
+  </p>
+</div>
+
+<script src="{% static 'js/password-criteria.js' %}"></script>
+{% endblock %}
