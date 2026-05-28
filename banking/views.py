@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods
 
 from .forms import (
     BillerForm,
@@ -57,7 +57,14 @@ def _business_context(role, business_account, **overrides):
     return context
 
 
+@require_http_methods(["GET"])
+def home_view(request):
+    """Redirect the root route to the dashboard."""
+    return redirect("banking:dashboard")
+
+
 @login_required
+@require_http_methods(["GET"])
 def dashboard_view(request):
     """Render the logged-in user's balance dashboard."""
     if hasattr(request.user, "manager_profile"):
@@ -101,7 +108,7 @@ def dashboard_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def deposit_view(request):
     """Handle a deposit POST."""
     form = DepositForm(request.POST)
@@ -155,7 +162,7 @@ def deposit_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def withdraw_view(request):
     """Handle a withdrawal POST."""
     form = WithdrawForm(request.POST)
@@ -209,7 +216,7 @@ def withdraw_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def transfer_view(request):
     """Handle an internal transfer POST."""
     form = TransferForm(request.POST)
@@ -222,6 +229,8 @@ def transfer_view(request):
                 form.add_error(None, str(exc))
             except InsufficientFundsError as exc:
                 form.add_error("amount", str(exc))
+            except BankingError as exc:
+                form.add_error(None, str(exc))
             else:
                 messages.success(request, "Transfer submitted and awaiting authoriser approval.")
                 return redirect("banking:dashboard")
@@ -240,6 +249,8 @@ def transfer_view(request):
                 form.add_error(None, str(exc))
             except InsufficientFundsError as exc:
                 form.add_error("amount", str(exc))
+            except BankingError as exc:
+                form.add_error(None, str(exc))
             else:
                 messages.success(request, "Transfer executed successfully.")
                 return redirect("banking:dashboard")
@@ -269,6 +280,7 @@ def transfer_view(request):
 
 
 @login_required
+@require_http_methods(["GET"])
 def transaction_history_view(request):
     """Render the complete transaction history for the logged-in account."""
     role, business_account = _business_role(request.user)
@@ -309,6 +321,7 @@ def _billing_context(account, **overrides):
 
 
 @login_required
+@require_http_methods(["GET"])
 def billing_view(request):
     """Render the billing page — biller list plus pay and add-biller forms."""
     role, business_account = _business_role(request.user)
@@ -332,7 +345,7 @@ def billing_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def pay_bill_view(request):
     """Handle a bill payment POST."""
     if hasattr(request.user, "manager_profile"):
@@ -397,7 +410,7 @@ def pay_bill_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def add_biller_view(request):
     """Handle adding a new biller."""
     if _business_role(request.user)[1] is not None:
@@ -423,7 +436,7 @@ def add_biller_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def remove_biller_view(request, biller_id):
     """Handle removing a saved biller owned by the logged-in user."""
     if _business_role(request.user)[1] is not None:
@@ -438,6 +451,7 @@ def remove_biller_view(request, biller_id):
 
 
 @login_required
+@require_http_methods(["GET"])
 def billing_history_view(request):
     """Render the bill payment history for the logged-in user."""
     role, business_account = _business_role(request.user)
@@ -462,6 +476,7 @@ def billing_history_view(request):
     )
 
 
+@require_http_methods(["GET", "POST"])
 def create_business_account_view(request):
     """Public form that creates a BusinessAccount with manager and authoriser via mock SQL."""
     if request.method == "POST":
@@ -481,6 +496,7 @@ def create_business_account_view(request):
     return render(request, "banking/create_business_account.html", {"form": BusinessCreateForm()})
 
 
+@require_http_methods(["GET"])
 def business_account_created_view(request):
     """One-time credential display — pops session key; redirects if already consumed."""
     creds = request.session.pop("business_created_credentials", None)
@@ -490,6 +506,7 @@ def business_account_created_view(request):
 
 
 @login_required
+@require_http_methods(["GET"])
 def authoriser_queue_view(request):
     """List all pending transactions the logged-in user is authoriser for."""
     from .models import PendingTransaction
@@ -508,7 +525,7 @@ def authoriser_queue_view(request):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def approve_transaction_view(request, pending_tx_id):
     """Approve a pending transaction as the assigned authoriser."""
     from .models import PendingTransaction
@@ -526,7 +543,7 @@ def approve_transaction_view(request, pending_tx_id):
 
 
 @login_required
-@require_POST
+@require_http_methods(["POST"])
 def reject_transaction_view(request, pending_tx_id):
     """Reject a pending transaction as the assigned authoriser."""
     from .models import PendingTransaction
@@ -541,6 +558,7 @@ def reject_transaction_view(request, pending_tx_id):
 
 
 @login_required
+@require_http_methods(["GET"])
 def manager_pending_view(request):
     """Read-only list of pending transactions for the account manager's business account."""
     from .models import PendingTransaction
